@@ -1,0 +1,185 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+//  PO3 Gold Levels  —  XAUUSD
+//
+//  Every level below is taken literally from the "Gold" sheet of PO3_Levels.xlsx
+//  and divided by 100, per that sheet's note "Divided by 100 to get 2 decimals".
+//  Nothing is computed from price: this is the workbook's list, drawn.
+//
+//  Source rows (sheet "Gold"):
+//     rows 15-19  macro levels     3^9  x 1..18   ·  3^10 x 1..7
+//                                  3^11 x 1..2    ·  3^12 x 1  ·  3^13 x 1
+//     rows 34-40  intraday levels, Friday 14 March 2025
+//                                  3^7  x 128..141
+//                                  3^8  x 42..48
+//                                  3^9  x 14..16
+//
+//  A price appears in several rows at once (3542.94 is 3^9x18, 3^10x6 and
+//  3^11x2). Duplicates are merged and the level keeps its HIGHEST power, which
+//  is the sheet's own ranking rule: "The higher the power, stronger the level".
+//
+//  Note the intraday block spans 2755.62 - 3149.28, the 14 Mar 2025 trading
+//  window. Those lines sit below current gold and will be off-screen unless you
+//  scroll back to March 2025. The macro levels cover today's price.
+// ─────────────────────────────────────────────────────────────────────────────
+
+indicator("PO3 Gold Levels", "PO3 Gold", overlay = true,
+     max_lines_count = 100, max_labels_count = 100, max_boxes_count = 10)
+
+// ── Inputs ───────────────────────────────────────────────────────────────────
+gGrid = "Levels"
+minStr   = input.int(9, "Minimum power drawn", minval = 7, maxval = 13, group = gGrid,
+     tooltip = "7 and 8 are the 14 March 2025 intraday levels (2755.62 - 3149.28). " +
+               "9 and above are the macro levels.")
+lookback = input.int(500, "History drawn (bars)", minval = 20, maxval = 5000, group = gGrid)
+extendL  = input.bool(false, "Extend left past history", group = gGrid)
+
+gLbl = "Labels"
+showLbl = input.bool(true, "Show price labels", group = gLbl)
+lblMin  = input.int(9, "Label levels of power >=", minval = 7, maxval = 13, group = gLbl)
+lblOff  = input.int(6, "Label offset (bars)", minval = 1, maxval = 60, group = gLbl)
+
+gRng = "Dealing range"
+showRng = input.bool(true, "Show equilibrium", group = gRng,
+     tooltip = "Sheet note: each major PO3 partition has an equilibrium point, " +
+               "the lower half discount and the upper half premium.")
+eqPow   = input.int(10, "Partition by power of 3", minval = 9, maxval = 12, group = gRng,
+     tooltip = "The range is the two listed levels of at least this power that bracket price.")
+shadePD = input.bool(true, "Shade premium / discount", group = gRng)
+
+gCol = "Colours"
+cMinor = input.color(color.new(#8A95A1, 55), "Power 7-8",   group = gCol)
+cMajor = input.color(color.new(#C9962C, 15), "Power 9+",    group = gCol)
+cEq    = input.color(color.new(#E9ECEF, 20), "Equilibrium", group = gCol)
+cPrem  = input.color(color.new(#E07A70, 93), "Premium fill",  group = gCol)
+cDisc  = input.color(color.new(#4FB98A, 93), "Discount fill", group = gCol)
+
+// ── The workbook's levels, ascending. Second array is the level's power. ─────
+var float[] lv = array.from(
+     196.83,   393.66,   590.49,   787.32,   984.15,
+    1180.98,  1377.81,  1574.64,  1771.47,  1968.30,
+    2165.13,  2361.96,  2558.79,  2755.62,  2799.36,
+    2821.23,  2843.10,  2864.97,  2886.84,  2908.71,
+    2930.58,  2952.45,  2974.32,  2996.19,  3018.06,
+    3039.93,  3061.80,  3083.67,  3149.28,  3346.11,
+    3542.94,  4133.43,  5314.41, 15943.23)
+
+var int[] st = array.from(
+          9,        9,       10,        9,        9,
+         10,        9,        9,       11,        9,
+          9,       10,        9,        9,        7,
+          8,        7,        7,        8,        7,
+          7,       10,        7,        7,        8,
+          7,        7,        8,        9,        9,
+         11,       10,       12,       13)
+
+// ── Form encodes strength ────────────────────────────────────────────────────
+strWidth(int s) =>
+    s >= 12 ? 4 : s >= 11 ? 3 : s >= 10 ? 2 : 1
+
+strColor(int s) =>
+    s >= 9 ? cMajor : cMinor
+
+// ── The partition price currently sits in ────────────────────────────────────
+float eqLo = na
+float eqHi = na
+for i = 0 to array.size(lv) - 1
+    if array.get(st, i) >= eqPow
+        float p = array.get(lv, i)
+        // The low owns an exact touch, so sitting precisely on a level brackets
+        // into the partition above instead of collapsing eqLo onto eqHi.
+        if p <= close and (na(eqLo) or p > eqLo)
+            eqLo := p
+        if p > close and (na(eqHi) or p < eqHi)
+            eqHi := p
+bool  haveRng = not na(eqLo) and not na(eqHi) and eqHi > eqLo
+float eqMid   = haveRng ? (eqLo + eqHi) / 2.0 : na
+
+ext = extendL ? extend.both : extend.right
+
+// ── Draw ─────────────────────────────────────────────────────────────────────
+var line[]  glines  = array.new_line()
+var label[] glabels = array.new_label()
+var box[]   gboxes  = array.new_box()
+
+if barstate.islast
+    while array.size(glines) > 0
+        line.delete(array.pop(glines))
+    while array.size(glabels) > 0
+        label.delete(array.pop(glabels))
+    while array.size(gboxes) > 0
+        box.delete(array.pop(gboxes))
+
+    int x1 = math.max(0, bar_index - lookback)
+
+    if showRng and shadePD and haveRng
+        array.push(gboxes, box.new(x1, eqHi, bar_index + lblOff + 40, eqMid,
+             border_color = color.new(color.gray, 100), bgcolor = cPrem, extend = extend.right))
+        array.push(gboxes, box.new(x1, eqMid, bar_index + lblOff + 40, eqLo,
+             border_color = color.new(color.gray, 100), bgcolor = cDisc, extend = extend.right))
+
+    for i = 0 to array.size(lv) - 1
+        int   s   = array.get(st, i)
+        float p   = array.get(lv, i)
+        if s >= minStr
+            array.push(glines, line.new(x1, p, bar_index, p,
+                 xloc   = xloc.bar_index,
+                 extend = ext,
+                 color  = strColor(s),
+                 width  = strWidth(s)))
+            if showLbl and s >= lblMin
+                array.push(glabels, label.new(bar_index + lblOff, p,
+                     str.tostring(p, "#.00") + "   3^" + str.tostring(s),
+                     xloc      = xloc.bar_index,
+                     style     = label.style_label_left,
+                     textcolor = strColor(s),
+                     color     = color.new(color.black, 100),
+                     size      = size.small))
+
+    if showRng and haveRng
+        array.push(glines, line.new(x1, eqMid, bar_index, eqMid,
+             xloc = xloc.bar_index, extend = ext,
+             color = cEq, width = 1, style = line.style_dashed))
+        array.push(glabels, label.new(bar_index + lblOff, eqMid,
+             "EQ " + str.tostring(eqMid, "#.00"),
+             xloc = xloc.bar_index, style = label.style_label_left,
+             textcolor = cEq, color = color.new(color.black, 100), size = size.small))
+
+// ── Status table ─────────────────────────────────────────────────────────────
+var table info = table.new(position.top_right, 2, 3,
+     bgcolor = color.new(#161A20, 12), border_color = color.new(#343C46, 40), border_width = 1)
+
+if barstate.islast
+    table.cell(info, 0, 0, "PO3 3^" + str.tostring(eqPow) + " range", text_color = #8E98A4,
+         text_size = size.small, text_halign = text.align_left)
+    table.cell(info, 1, 0, haveRng ? str.tostring(eqLo, "#.00") + " → " + str.tostring(eqHi, "#.00")
+         : "price outside listed levels",
+         text_color = #E9ECEF, text_size = size.small, text_halign = text.align_right)
+
+    table.cell(info, 0, 1, "Equilibrium", text_color = #8E98A4, text_size = size.small,
+         text_halign = text.align_left)
+    table.cell(info, 1, 1, haveRng ? str.tostring(eqMid, "#.00") : "—", text_color = #E9ECEF,
+         text_size = size.small, text_halign = text.align_right)
+
+    float pctIn = haveRng ? (close - eqLo) / (eqHi - eqLo) * 100.0 : na
+    bool  prem  = haveRng and close >= eqMid
+    table.cell(info, 0, 2, "Price sits in", text_color = #8E98A4, text_size = size.small,
+         text_halign = text.align_left)
+    table.cell(info, 1, 2, haveRng ? (prem ? "PREMIUM " : "DISCOUNT ") + str.tostring(pctIn, "#.0") + "%"
+         : "—",
+         text_color = haveRng ? (prem ? #E07A70 : #4FB98A) : #8E98A4,
+         text_size = size.small, text_halign = text.align_right)
+
+// ── Alert when the bar trades through a listed level ─────────────────────────
+alertMin = input.int(9, "Alert on power >=", minval = 7, maxval = 13, group = "Alerts")
+
+int touchPow = 0
+for i = 0 to array.size(lv) - 1
+    int   s = array.get(st, i)
+    float p = array.get(lv, i)
+    if s >= alertMin and high >= p and low <= p and s > touchPow
+        touchPow := s
+
+alertcondition(touchPow > 0, "PO3 gold level touched",
+     "Gold is trading at a PO3 level of power {{plot_0}}")
+plot(touchPow > 0 ? float(touchPow) : na, "power", display = display.none)

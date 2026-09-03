@@ -1,0 +1,16 @@
+# Third-party source material — not ours to redistribute from a public repo.
+# The README documents every level these produce, so the code stands alone.
+goldbach_fundamentals*.pdf
+PO3_Levels*.xlsx
+
+# Superseded local draft: describes an earlier price-following grid, not the
+# indicators in this repo.
+PO3_Gold_Levels.html
+
+# LibreOffice / Excel lock files
+.~lock.*#
+~$*
+
+# MetaEditor build output
+*.ex5
+*.ex4
