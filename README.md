@@ -50,16 +50,18 @@ decided by whichever drew last.
 
 Instead each price is drawn once and belongs to the **highest** ticked PO3
 number that lands on it. Gold at 4374 divides by every number from 3 to 2187,
-so it is drawn and labelled as 2187. With 9 and 27 ticked at 3500, twelve
-candidate lines merge into ten distinct prices:
+so it is drawn and labelled as 2187. With 9 and 27 ticked at that price,
+twelve candidate lines merge into ten distinct prices:
 
-| Price | Divides by | Drawn as |
-|-------|------------|----------|
-| 3499.20 | 9, 27 | 27 |
-| 3499.74 | 9, 27 | 27 |
-| 3499.83 | 9 | 9 |
-| 3499.92 | 9 | 9 |
-| 3500.01 | 9, 27 | 27 |
+| Price | Produced by | Drawn as |
+|-------|-------------|----------|
+| 4347 | 27 | 27 |
+| 4356 | 9 | 9 |
+| 4365 | 9 | 9 |
+| **4374** | 9 and 27 | **27** |
+| 4383 | 9 | 9 |
+| 4392 | 9 | 9 |
+| 4401 | 9 and 27 | 27 |
 
 Ownership is order-independent — a number gives the same result whichever
 checkbox order it is registered in.
