@@ -60,6 +60,14 @@ input int    InpLabelMinPO3 = 243;  // Label only levels of PO3 >= this
 input int    InpFontSize    = 7;    // Label text size
 input int    InpLabelShift  = 0;    // Label shift right, in bars (0 = at the last bar)
 
+input group "Candle countdown";
+input bool            InpShowClock  = true;              // Show time left on the current candle
+input ENUM_BASE_CORNER InpClockCorner = CORNER_RIGHT_UPPER; // Corner
+input int             InpClockX     = 12;                // Distance from corner, X
+input int             InpClockY     = 18;                // Distance from corner, Y
+input int             InpClockSize  = 10;                // Text size
+input color           InpClockColor = clrSilver;         // Text colour
+
 input group "PO3 levels to show";
 input bool  InpUse_3     = false;              // 3      - show
 input color InpCol_3     = clrGray;            // 3      - colour
@@ -151,9 +159,10 @@ int OnInit()
 
    if(g_n == 0)
      {
-      Print("PO3 Levels: no PO3 number ticked, nothing will be drawn.");
+      Print("PO3 Levels: no PO3 number ticked, no levels will be drawn.");
       IndicatorSetString(INDICATOR_SHORTNAME, "PO3 (none ticked)");
       g_dirty = true;
+      EventSetTimer(1);          // the countdown is independent of the levels
       return(INIT_SUCCEEDED);
      }
 
@@ -182,12 +191,15 @@ int OnInit()
    g_lastTime = 0;
    g_dirty    = true;
    g_logged   = false;
+
+   EventSetTimer(1);                    // one-second countdown
    return(INIT_SUCCEEDED);
   }
 
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
+   EventKillTimer();
    ObjectsDeleteAll(0, PO3_PREFIX, -1, -1);
    ChartRedraw();
   }
@@ -257,7 +269,11 @@ void DrawLevel(const long raw, const int idx, const datetime labelTime)
 //+------------------------------------------------------------------+
 void Rebuild(const double price, const datetime labelTime)
   {
-   ObjectsDeleteAll(0, PO3_PREFIX, -1, -1);
+   //--- Only the level objects. A blanket delete by prefix would take the
+   //--- countdown label with it on every redraw, and the clock would flicker
+   //--- out whenever price crossed a grid cell.
+   ObjectsDeleteAll(0, PO3_PREFIX, -1, OBJ_HLINE);
+   ObjectsDeleteAll(0, PO3_PREFIX, -1, OBJ_TEXT);
 
    if(g_n <= 0)
      {
@@ -331,6 +347,121 @@ void Rebuild(const double price, const datetime labelTime)
   }
 
 //+------------------------------------------------------------------+
+//| The chart's timeframe, "M15" rather than "PERIOD_M15".           |
+//+------------------------------------------------------------------+
+string TfName()
+  {
+   return(StringSubstr(EnumToString((ENUM_TIMEFRAMES)_Period), 7));
+  }
+
+//+------------------------------------------------------------------+
+//| Time left, in units that suit however long the candle is: mm:ss  |
+//| under an hour, hh:mm:ss above it, and days once past one.        |
+//| So M15 counts down minutes and seconds, H4 shows hours, and D1   |
+//| shows the whole day draining away, with no per-timeframe case.   |
+//+------------------------------------------------------------------+
+string Countdown(const long secs)
+  {
+   long s = (secs > 0) ? secs : 0;
+   long d = s / 86400; s -= d * 86400;
+   long h = s / 3600;  s -= h * 3600;
+   long m = s / 60;    s -= m * 60;
+
+   if(d > 0)
+      return(StringFormat("%dd %02d:%02d:%02d", (int)d, (int)h, (int)m, (int)s));
+   if(h > 0)
+      return(StringFormat("%02d:%02d:%02d", (int)h, (int)m, (int)s));
+   return(StringFormat("%02d:%02d", (int)m, (int)s));
+  }
+
+//+------------------------------------------------------------------+
+//| Screen-anchored, so it stays put as the chart scrolls.           |
+//|                                                                  |
+//| MN1 is nominal: PeriodSeconds() calls a month 30 days, so the    |
+//| monthly countdown is approximate. Every other timeframe is exact.|
+//+------------------------------------------------------------------+
+ENUM_ANCHOR_POINT AnchorFor(const ENUM_BASE_CORNER c)
+  {
+   //--- Match the anchor to the corner so X and Y always measure inward. A
+   //--- fixed right anchor would push the text off the left edge of the chart
+   //--- as soon as someone chose a left corner.
+   switch(c)
+     {
+      case CORNER_LEFT_UPPER:  return(ANCHOR_LEFT_UPPER);
+      case CORNER_LEFT_LOWER:  return(ANCHOR_LEFT_LOWER);
+      case CORNER_RIGHT_LOWER: return(ANCHOR_RIGHT_LOWER);
+      default:                 return(ANCHOR_RIGHT_UPPER);
+     }
+  }
+
+void UpdateClock()
+  {
+   string name = PO3_PREFIX + "CLOCK";
+
+   if(!InpShowClock)
+     {
+      ObjectDelete(0, name);
+      return;
+     }
+
+   datetime open = iTime(_Symbol, _Period, 0);
+   if(open == 0)
+      return;                                   // history not ready yet
+
+   long left = (long)(open + PeriodSeconds()) - (long)TimeCurrent();
+
+   ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, name, OBJPROP_CORNER,     InpClockCorner);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE,  InpClockX);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE,  InpClockY);
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR,     AnchorFor(InpClockCorner));
+   ObjectSetString (0, name, OBJPROP_TEXT,       TfName() + "  " + Countdown(left));
+   ObjectSetInteger(0, name, OBJPROP_COLOR,      InpClockColor);
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE,   (int)MathMax(6, MathMin(24, InpClockSize)));
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTED,   false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN,     true);
+  }
+
+//+------------------------------------------------------------------+
+//| Redraw the levels if price has crossed a grid cell or a new bar  |
+//| opened. Shared by the tick and timer paths so a quiet market     |
+//| still rolls the levels onto the new bar.                         |
+//+------------------------------------------------------------------+
+void RefreshLevels()
+  {
+   if(g_n <= 0)
+      return;
+
+   double   price = iClose(_Symbol, _Period, 0);
+   datetime last  = iTime (_Symbol, _Period, 0);
+   if(price <= 0.0 || last == 0)
+      return;
+
+   long m0 = (long)MathFloor(price * InpScale / (double)g_finest + 1e-9);
+
+   if(g_dirty || m0 != g_anchor || last != g_lastTime)
+     {
+      Rebuild(price, last + (datetime)(PeriodSeconds() * InpLabelShift));
+      g_anchor   = m0;
+      g_lastTime = last;
+      g_dirty    = false;
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Ticks are not guaranteed once a minute, so the clock runs off a  |
+//| timer instead. Without it the countdown would sit frozen through |
+//| a quiet session and read wrong.                                  |
+//+------------------------------------------------------------------+
+void OnTimer()
+  {
+   RefreshLevels();
+   UpdateClock();
+   ChartRedraw();
+  }
+
+//+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
                 const datetime &time[],
@@ -342,28 +473,11 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   if(rates_total <= 0 || g_n <= 0)
+   if(rates_total <= 0)
       return(rates_total);
 
-   ArraySetAsSeries(close, false);      // index 0 = oldest, so the last is current
-   ArraySetAsSeries(time,  false);
-
-   double   price = close[rates_total - 1];
-   datetime last  = time[rates_total - 1];
-   if(price <= 0.0)
-      return(rates_total);
-
-   datetime labelTime = last + (datetime)(PeriodSeconds() * InpLabelShift);
-
-   long m0 = (long)MathFloor(price * InpScale / (double)g_finest + 1e-9);
-
-   if(g_dirty || m0 != g_anchor || last != g_lastTime)
-     {
-      Rebuild(price, labelTime);
-      g_anchor   = m0;
-      g_lastTime = last;
-      g_dirty    = false;
-     }
+   RefreshLevels();
+   UpdateClock();
 
    return(rates_total);
   }

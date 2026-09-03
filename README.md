@@ -23,6 +23,7 @@ Based on the Power of Three / Goldbach level model taught by **Hopiplaka**.
 - Width and style follow magnitude, so stronger levels read as stronger lines
 - PO3 number written on each line, with a threshold to keep fine grids unlabelled
 - Whole-number levels by default on gold; a scale divisor switches to the two-decimal form
+- Countdown to the current candle's close, in units that follow the chart timeframe
 - Redraws only when price crosses a grid cell or a new bar opens, not on every tick
 
 ## How the levels are built
@@ -107,6 +108,11 @@ Open Pine Editor, paste `PO3_Gold_Levels.pine`, save, then Add to chart.
 | Label text size | `7` | |
 | Label shift right, in bars | `0` | `0` anchors at the last bar, always on screen |
 | Show 3 … Show 19683 | `243`, `729`, `2187` on | One checkbox and one colour per PO3 number |
+| Show time left on the current candle | `true` | |
+| Corner | `CORNER_RIGHT_UPPER` | X and Y measure inward from the corner you pick |
+| Distance from corner, X / Y | `12` / `18` | |
+| Text size | `10` | |
+| Text colour | `clrSilver` | |
 
 Width and style are derived from magnitude: 3/9/27 thin dotted, 81/243 thin
 solid, 729/2187 medium, 6561/19683 thick.
@@ -114,6 +120,14 @@ solid, 729/2187 medium, 6561/19683 thick.
 The Experts log prints the resolved selection and the line count each grid
 contributed after merging, so a grid that draws nothing can be told apart from
 one that draws lines you cannot see.
+
+### Candle countdown
+
+The counter shows the chart timeframe and the time left on the current candle,
+in units that follow the period — `M15  14:59` counting down minutes and
+seconds, `H4  03:59:59`, `D1  23:59:59`, `W1  6d 23:59:59`. It runs off a
+one-second timer rather than incoming ticks, so it keeps counting through a
+quiet session instead of freezing between trades.
 
 ## Notes
 
@@ -124,6 +138,9 @@ one that draws lines you cannot see.
 - A coarse grid spends most of its window off-chart. Ticking 2187 at gold 4374
   draws 2187 and 4374, then 6561, 8748 and 10935 far above — five levels, two
   of them near price. That is inherent to giving each grid its own window.
+- The monthly countdown is nominal. MT5 treats a month as 30 days when asked
+  for a period length, so `MN1` drifts against the real month end. Every other
+  timeframe is exact.
 - Level prices are not passed through `NormalizeDouble`. The integer multiply
   and single divide already land on the exact figure; rounding to a broker's
   digit count could only move a level off it.
