@@ -24,6 +24,7 @@ Based on the Power of Three / Goldbach level model taught by **Hopiplaka**.
 - PO3 number written on each line, with a threshold to keep fine grids unlabelled
 - Whole-number levels by default on gold; a scale divisor switches to the two-decimal form
 - Countdown to the current candle's close, in units that follow the chart timeframe
+- Session timer for capping screen time, unaffected by switching timeframe
 - Redraws only when price crosses a grid cell or a new bar opens, not on every tick
 
 ## How the levels are built
@@ -113,6 +114,13 @@ Open Pine Editor, paste `PO3_Gold_Levels.pine`, save, then Add to chart.
 | Distance from corner, X / Y | `12` / `18` | |
 | Text size | `10` | |
 | Text colour | `clrSilver` | |
+| Show time spent on this chart | `true` | The session timer, second line below the countdown by default |
+| Corner (session) | `CORNER_RIGHT_UPPER` | |
+| Distance from corner, X / Y (session) | `12` / `40` | |
+| Text size (session) | `10` | |
+| Text colour (session) | `clrSilver` | |
+| Minutes on chart before it turns red | `0` | `0` is off; otherwise the timer recolours and alerts once when the budget is spent |
+| Text colour once over the limit | `clrTomato` | |
 
 Width and style are derived from magnitude: 3/9/27 thin dotted, 81/243 thin
 solid, 729/2187 medium, 6561/19683 thick.
@@ -128,6 +136,23 @@ in units that follow the period — `M15  14:59` counting down minutes and
 seconds, `H4  03:59:59`, `D1  23:59:59`, `W1  6d 23:59:59`. It runs off a
 one-second timer rather than incoming ticks, so it keeps counting through a
 quiet session instead of freezing between trades.
+
+### Session timer
+
+`On chart  01:23:45` is wall-clock time since the indicator loaded — how long
+you have been looking at this chart. It is for capping screen time, so it counts
+straight through closed markets and weekends rather than tracking a trading
+session.
+
+**Switching timeframe does not reset it.** MT5 reloads the indicator on every
+period change, so the start time is kept in a terminal global variable keyed by
+the chart and picked back up on reload. It restarts only when the indicator or
+the chart is genuinely reloaded — removed and re-added, recompiled, or the chart
+closed and reopened. A crash restarts it too, by design. Changing the chart
+symbol keeps it running, since it is the same chart.
+
+Set *Minutes on chart before it turns red* to a limit and the timer recolours
+once you pass it and raises one alert. `0` leaves it a plain always-on clock.
 
 ## Notes
 

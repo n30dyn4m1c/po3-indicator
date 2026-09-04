@@ -41,7 +41,7 @@
 //|   19683  around 2950 -> 2755.62 .. 3149.28   (row 40, x14..16)   |
 //+------------------------------------------------------------------+
 #property copyright "PO3 Levels"
-#property version   "1.30"
+#property version   "1.31"
 #property indicator_chart_window
 #property indicator_buffers 0
 #property indicator_plots   0
@@ -67,6 +67,19 @@ input int             InpClockX     = 12;                // Distance from corner
 input int             InpClockY     = 18;                // Distance from corner, Y
 input int             InpClockSize  = 10;                // Text size
 input color           InpClockColor = clrSilver;         // Text colour
+
+input group "Session timer";
+//--- Wall-clock time this chart has been open, for capping screen time. It
+//--- starts when the indicator loads and survives a timeframe or input change;
+//--- only reloading the indicator or the chart resets it. See OnInit / OnDeinit.
+input bool             InpShowSession    = true;                 // Show time spent on this chart
+input ENUM_BASE_CORNER InpSessionCorner  = CORNER_RIGHT_UPPER;   // Corner
+input int              InpSessionX       = 12;                   // Distance from corner, X
+input int              InpSessionY       = 40;                   // Distance from corner, Y
+input int              InpSessionSize    = 10;                   // Text size
+input color            InpSessionColor   = clrSilver;            // Text colour
+input int              InpSessionLimitMin = 0;                   // Minutes on chart before it turns red (0 = off)
+input color            InpSessionOverColor = clrTomato;          // Text colour once over the limit
 
 input group "PO3 levels to show";
 input bool  InpUse_3     = false;              // 3      - show
@@ -107,6 +120,16 @@ datetime g_lastTime = 0;
 bool     g_dirty    = true;
 bool     g_logged   = false;
 
+//--- Session timer. The start time lives in a terminal global variable keyed by
+//--- chart id, so it outlives the OnInit/OnDeinit cycle that a timeframe or
+//--- input change triggers. On such a change OnDeinit leaves g_gvCarry set and
+//--- the next OnInit adopts the stored start instead of restarting. g_gvAlerted
+//--- flags that the over-limit alert has already fired for this session.
+string   g_gvStart      = "";
+string   g_gvCarry      = "";
+string   g_gvAlerted    = "";
+datetime g_sessionStart = 0;
+
 //+------------------------------------------------------------------+
 //| Whole levels print without decimals, so a scale 1 gold level     |
 //| reads 4374 rather than 4374.00.                                  |
@@ -138,6 +161,37 @@ void AddPO3(const bool on, const int po3, const color col)
   }
 
 //+------------------------------------------------------------------+
+//| Start, or adopt, the session timer.                               |
+//|                                                                  |
+//| MT5 tears the indicator down and rebuilds it on a timeframe or    |
+//| input change, so a start time held in a plain variable would      |
+//| reset every time the chart period was switched. It lives in a     |
+//| terminal global instead, keyed by chart id. OnDeinit sets the     |
+//| carry flag for exactly the reasons that should not reset the      |
+//| count, so its presence here means "adopt the stored start". A     |
+//| crash never runs OnDeinit, so the flag is absent and the count    |
+//| starts clean, which is what you want after a crash anyway.        |
+//+------------------------------------------------------------------+
+void SessionInit()
+  {
+   string base = "PO3_Session_" + IntegerToString(ChartID());
+   g_gvStart   = base;
+   g_gvCarry   = base + "_carry";
+   g_gvAlerted = base + "_alert";
+
+   bool carry = GlobalVariableCheck(g_gvCarry) && GlobalVariableCheck(g_gvStart);
+   GlobalVariableDel(g_gvCarry);
+
+   if(!carry)
+     {
+      GlobalVariableSet(g_gvStart, (double)TimeLocal());
+      GlobalVariableDel(g_gvAlerted);
+     }
+
+   g_sessionStart = (datetime)(long)GlobalVariableGet(g_gvStart);
+  }
+
+//+------------------------------------------------------------------+
 int OnInit()
   {
    if(InpScale <= 0.0)
@@ -145,6 +199,8 @@ int OnInit()
       Print("PO3 Levels: scale divisor must be greater than zero.");
       return(INIT_PARAMETERS_INCORRECT);
      }
+
+   SessionInit();
 
    g_n = 0;                                  // ascending, so g_po3[0] is finest
    AddPO3(InpUse_3,     3,     InpCol_3);
@@ -200,6 +256,18 @@ int OnInit()
 void OnDeinit(const int reason)
   {
    EventKillTimer();
+
+   //--- A timeframe or input change keeps the session clock running; anything
+   //--- that genuinely reloads the indicator or the chart ends it.
+   if(reason == REASON_CHARTCHANGE || reason == REASON_PARAMETERS)
+      GlobalVariableSet(g_gvCarry, 1.0);
+   else
+     {
+      GlobalVariableDel(g_gvStart);
+      GlobalVariableDel(g_gvCarry);
+      GlobalVariableDel(g_gvAlerted);
+     }
+
    ObjectsDeleteAll(0, PO3_PREFIX, -1, -1);
    ChartRedraw();
   }
@@ -355,12 +423,12 @@ string TfName()
   }
 
 //+------------------------------------------------------------------+
-//| Time left, in units that suit however long the candle is: mm:ss  |
-//| under an hour, hh:mm:ss above it, and days once past one.        |
-//| So M15 counts down minutes and seconds, H4 shows hours, and D1   |
-//| shows the whole day draining away, with no per-timeframe case.   |
+//| A span of seconds in units that suit its size: mm:ss under an    |
+//| hour, hh:mm:ss above it, and days once past one. The candle      |
+//| countdown and the session timer both format through here, so     |
+//| M15 reads 14:59 while an hour on the chart reads 01:00:00.       |
 //+------------------------------------------------------------------+
-string Countdown(const long secs)
+string HMS(const long secs)
   {
    long s = (secs > 0) ? secs : 0;
    long d = s / 86400; s -= d * 86400;
@@ -415,9 +483,52 @@ void UpdateClock()
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE,  InpClockX);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE,  InpClockY);
    ObjectSetInteger(0, name, OBJPROP_ANCHOR,     AnchorFor(InpClockCorner));
-   ObjectSetString (0, name, OBJPROP_TEXT,       TfName() + "  " + Countdown(left));
+   ObjectSetString (0, name, OBJPROP_TEXT,       TfName() + "  " + HMS(left));
    ObjectSetInteger(0, name, OBJPROP_COLOR,      InpClockColor);
    ObjectSetInteger(0, name, OBJPROP_FONTSIZE,   (int)MathMax(6, MathMin(24, InpClockSize)));
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTED,   false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN,     true);
+  }
+
+//+------------------------------------------------------------------+
+//| Wall-clock time this chart has been open. Counts through closed  |
+//| markets and weekends, since the point is screen time, not        |
+//| session time, and turns red once a set number of minutes is up.  |
+//+------------------------------------------------------------------+
+void UpdateSession()
+  {
+   string name = PO3_PREFIX + "SESSION";
+
+   if(!InpShowSession || g_sessionStart == 0)
+     {
+      ObjectDelete(0, name);
+      return;
+     }
+
+   long elapsed = (long)TimeLocal() - (long)g_sessionStart;
+   if(elapsed < 0)
+      elapsed = 0;                               // local clock stepped back
+
+   long  limit = (long)InpSessionLimitMin * 60;
+   bool  over  = (limit > 0 && elapsed >= limit);
+
+   //--- One alert the moment the budget is spent. The flag is a terminal global
+   //--- so switching timeframe mid-session does not make it fire a second time.
+   if(over && !GlobalVariableCheck(g_gvAlerted))
+     {
+      GlobalVariableSet(g_gvAlerted, 1.0);
+      Alert(_Symbol, ": ", InpSessionLimitMin, " minutes on the chart.");
+     }
+
+   ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, name, OBJPROP_CORNER,     InpSessionCorner);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE,  InpSessionX);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE,  InpSessionY);
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR,     AnchorFor(InpSessionCorner));
+   ObjectSetString (0, name, OBJPROP_TEXT,       "On chart  " + HMS(elapsed));
+   ObjectSetInteger(0, name, OBJPROP_COLOR,      over ? InpSessionOverColor : InpSessionColor);
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE,   (int)MathMax(6, MathMin(24, InpSessionSize)));
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_SELECTED,   false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN,     true);
@@ -458,6 +569,7 @@ void OnTimer()
   {
    RefreshLevels();
    UpdateClock();
+   UpdateSession();
    ChartRedraw();
   }
 
@@ -478,6 +590,7 @@ int OnCalculate(const int rates_total,
 
    RefreshLevels();
    UpdateClock();
+   UpdateSession();
 
    return(rates_total);
   }
