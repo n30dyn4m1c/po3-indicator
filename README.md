@@ -97,12 +97,18 @@ faithful to the same model; loading both will not give you the same lines.
 
 For the EA, additionally:
 
-1. Copy `PO3_Core.mqh` into `MQL5/Include/` — the EA includes it as
-   `<PO3_Core.mqh>`, so it must be there and not beside the EA
-2. Copy `PO3_Scalper.mq5` into `MQL5/Experts/` and compile it
+1. Copy **both** `PO3_Scalper.mq5` and `PO3_Core.mqh` into `MQL5/Experts/` —
+   they must sit in the same folder, and the header is not optional
+2. Open the `.mq5` in MetaEditor and compile it with `F7`
 3. Enable **Algo Trading** in MT5, then drag the EA onto a `#GOLDm` chart
 4. Any chart timeframe will do. The EA reads M1 and M5 from the symbol itself
    and never looks at the period it was dropped on
+
+Rename the `.mq5` if you like; MQL5 does not care what the file is called. The
+header's name *does* matter, because the `#include` names it.
+
+> `file 'Include\PO3_Core.mqh' not found` means `PO3_Core.mqh` is not in the
+> same folder as the `.mq5`. That is the only thing it means.
 
 Changing the input list between versions means removing the indicator from the
 chart and re-adding it, since MT5 caches inputs per chart.
@@ -235,7 +241,7 @@ from about $3 up — so the height cap is not new protection so much as the same
 rule stated plainly, with its own line in the log, and one that keeps holding
 if the R floor is ever lowered.
 
-### Structure it reads but does not trade on
+### Structure it reads, and mostly trades on
 
 Powers of three nest, so every third 9 level is also a 27 level, and a 27 range
 holds three 9 cells that read as discount, equilibrium and premium. On gold the
@@ -247,18 +253,34 @@ turning into support only once price has closed decisively above it. So each 27
 level has a state, support or resistance, and the EA reads it back from bar
 history on every signal — how many times the zone has been tested, how many
 decisive closes have crossed it, which side price settled on, and how recently
-it flipped. That is **computed, logged and shown, but not used to filter** by
-default, so the traded rule stays the simple one. Three inputs turn it into a
-filter when you want it:
+it flipped. All of it is logged on every signal whether or not it is filtering.
 
-- *Skip setups that fight a recently flipped 27 level*
-- *Skip levels chopped through more than this many times*
+Two of the three filters are **on**:
+
 - *Only trade toward the equilibrium of the 27 range* — discount buys, premium
   sells
+- *Skip setups that fight a recently flipped 27 level* — a level price has just
+  closed decisively through is expected to hold from its new side now
+
+One is **off**, so its cost can be measured against a run that already has the
+other two:
+
+- *Skip levels chopped through more than this many times*
+
+**The premium/discount rule only bites on the 9 track.** A 27 level *is* a
+range boundary, so a rejection of one is always read from whichever side suits
+it — a short off a 27 level sits at 98% of the range below, a long off it at 2%
+of the range above. Checked across gold 4300–4600 it blocks **34% of 9-grid
+setups and 0% of 27-grid setups**: on the 9 grid it removes shorts at the 33.3%
+level and longs at the 66.7% level, and on the 27 grid it is a no-op by
+construction.
 
 The state is read from history rather than kept in memory, so a restart, a
 recompile or a timeframe change cannot leave the EA holding a stale view of a
-level it never saw trade.
+level it never saw trade. The cooldown is the one thing that *is* remembered
+across a reload, in terminal global variables keyed by symbol and magic —
+otherwise recompiling would let the level just traded be taken again on the
+next candle.
 
 ### Size, and why there is no partial close
 
@@ -312,13 +334,37 @@ stop would have taken both legs together.
 | PO3 structure | Bars of history the state is read from | `300` | |
 | | A close this far past a level flips it | `0.30` ATR | |
 | | A flip this recent makes the next touch a retest | `30` bars | |
-| | The three structure filters | all off | See above |
+| | Skip setups that fight a recently flipped 27 level | `true` | |
+| | Only trade toward the equilibrium of the 27 range | `true` | A no-op on the 27 track; blocks 34% on the 9 track |
+| | Skip levels chopped through more than this many times | `0` (off) | Left off so its cost can be measured |
 | Display | Chart panel, signal marks, verbose log | all on | |
 
 The panel shows both tracks, where price sits in its 27 range, and whether the
 window is open. Signal candles are marked with an arrow and left on the chart
 on purpose — they are the record of what the EA saw, and a recompile should not
 wipe it.
+
+### Running it in the Strategy Tester
+
+The EA reads M1 and M5 from the symbol itself, so **the tester's chart period
+is irrelevant to the logic** — but the tick model is not:
+
+- Use **Every tick based on real ticks**, or **Every tick**. *Open prices only*
+  and *1 minute OHLC* will not fill stops and targets inside a candle, and both
+  tracks depend on that.
+- Download `#GOLDm` history first, and set the deposit, currency and leverage
+  to match the XM micro account you intend to run on. Lot size is fixed at
+  `0.1`, so the account size decides what that risk means.
+- **Run each track alone before running them together.** Set *Trade the 9 grid*
+  and *Trade the 27 grid* one at a time. The two tracks have separate magic
+  numbers, but the tester's report aggregates everything, so a combined run
+  cannot tell you which track earned or lost what.
+- Give it months, not weeks. A high-R, low-hit-rate rule needs a lot of trades
+  before its average means anything.
+
+The log names every setup it passed on and why, but only for candles that
+reached a level and closed back off it — the ones that were nearly trades.
+Candles nowhere near a level are not logged, or M1 would bury the Experts tab.
 
 ### Before you run it
 

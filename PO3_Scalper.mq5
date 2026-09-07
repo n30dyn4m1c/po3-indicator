@@ -30,9 +30,11 @@
 //|  and premium. A 27 level is the stronger of the two and          |
 //|  generally holds its first test, turning into support only once  |
 //|  price has closed decisively above it. That structure is read    |
-//|  and logged on every signal, and can be switched on as a filter, |
-//|  but it is off by default so the traded rule stays the simple    |
-//|  one.                                                            |
+//|  and logged on every signal. Two of the three filters that can    |
+//|  act on it are on: trade only toward the equilibrium of the 27    |
+//|  range, and do not fade a 27 level price has just closed          |
+//|  decisively through. The chop veto is left off so its cost can be |
+//|  measured against a run that already has the other two.           |
 //|                                                                  |
 //|  Levels come from PO3_Core.mqh, the same maths PO3_Levels.mq5    |
 //|  draws with, so the EA cannot end up trading a different grid    |
@@ -43,7 +45,11 @@
 #property description "Fades long-wicked rejections of the PO3 grid on gold: 9 levels on M1, 27 levels on M5."
 
 #include <Trade\Trade.mqh>
-#include <PO3_Core.mqh>
+//--- Quoted, not angled: MetaEditor resolves this against the folder holding
+//--- this file, so PO3_Core.mqh sits beside the EA and there is no separate
+//--- Include folder step to forget. Angle brackets would look only in
+//--- MQL5/Include and fail with "file 'Include\PO3_Core.mqh' not found".
+#include "PO3_Core.mqh"
 
 input group "Symbol and size";
 //--- Contract size and tick value are read from the symbol rather than assumed,
@@ -108,17 +114,23 @@ input int    InpStartHour       = 8;        // Trading window, first hour (serve
 input int    InpEndHour         = 21;       // Trading window, last hour (exclusive)
 input bool   InpAllowOpposite   = false;    // Let one track open against the other track's open trade
 
-input group "PO3 structure (tracked and logged; off as filters)";
+input group "PO3 structure";
 //--- A 27 level is the stronger one and generally holds its first test, and
 //--- only acts as support once price has closed decisively above it. The state
 //--- is computed from bar history on every signal and written to the log
 //--- whether or not it is being used to veto anything.
+//---
+//--- Two of the three are on. The premium/discount rule only ever bites on the
+//--- 9 track: a 27 level IS a range boundary, so a rejection of one is always
+//--- read from the premium or discount side that suits it, and the filter is a
+//--- no-op on track B by construction. The chop veto is the one left off, so
+//--- its cost can be measured against a run that already has the other two.
 input int    InpStateBars       = 300;      // Bars of history the level state is read from
 input double InpFlipBufATR      = 0.30;     // A close this far past a level flips its state
 input int    InpRetestBars      = 30;       // A flip this recent makes the next touch a retest
-input bool   InpUseStateFilter  = false;    // Skip setups that fight a recently flipped 27 level
+input bool   InpUseStateFilter  = true;     // Skip setups that fight a recently flipped 27 level
 input int    InpMaxFlips        = 0;        // Skip levels chopped through more than this many times (0 = off)
-input bool   InpUsePDFilter     = false;    // Only trade toward the equilibrium of the 27 range
+input bool   InpUsePDFilter     = true;     // Only trade toward the equilibrium of the 27 range
 
 input group "Display and logging";
 input bool   InpPanel           = true;     // Chart panel
@@ -297,26 +309,19 @@ void ReadLevelState(const double level, const double tol, const double atr,
 //| through - which is the point, since both are the same rejection. |
 //+------------------------------------------------------------------+
 bool Rejects(const MqlRates &b, const Track &t, const double level, const int dir,
-             const double tol, const double atr, string &why)
+             const double tol, const double atr, string &why, bool &nearMiss)
   {
-   //--- A floor and a ceiling on the candle. Under the floor there is no
-   //--- rejection to read; over the ceiling there is too much movement to fade.
+   //--- Most candles are refused because they were nowhere near a level, and on
+   //--- M1 that is nearly all of them. Only a candle that got the location right
+   //--- and then failed on its size or shape is worth a line in the log, so the
+   //--- tests are ordered location first and the flag is raised once they pass.
+   nearMiss = false;
+
    double range = b.high - b.low;
    if(range <= 0.0)
      { why = "zero range"; return(false); }
    if(range < t.minRangePts * _Point)
      { why = "candle under the minimum range"; return(false); }
-
-   if(InpMaxRangeP9 > 0.0)
-     {
-      double maxRange = InpMaxRangeP9 * PO3Step(GRID_9, InpScale);
-      if(range > maxRange)
-        {
-         why = StringFormat("candle is %.2f tall, over the %.2f cap - too volatile to fade",
-                            range, maxRange);
-         return(false);
-        }
-     }
 
    double reach = (dir < 0) ? b.high : b.low;
    double buf   = InpCloseBufATR * atr;
@@ -338,6 +343,23 @@ bool Rejects(const MqlRates &b, const Track &t, const double level, const int di
         { why = "close did not clear back over the level"; return(false); }
       if(InpMaxOvershootATR > 0.0 && reach < level - InpMaxOvershootATR * atr)
         { why = "low went past the level far enough to be a break, not a sweep"; return(false); }
+     }
+
+   //--- Location is right: this candle did reach the level and close back off
+   //--- it. Anything refused past here is a real near miss.
+   nearMiss = true;
+
+   //--- Wick included, a candle taller than one 9 cell has covered the whole
+   //--- distance the trade was going to make.
+   if(InpMaxRangeP9 > 0.0)
+     {
+      double maxRange = InpMaxRangeP9 * PO3Step(GRID_9, InpScale);
+      if(range > maxRange)
+        {
+         why = StringFormat("candle is %.2f tall, over the %.2f cap - too volatile to fade",
+                            range, maxRange);
+         return(false);
+        }
      }
 
    //--- the wick is the whole signal: a long one against the level, and a body
@@ -452,6 +474,47 @@ void ManageRunner(const Track &t)
      }
   }
 
+//+------------------------------------------------------------------+
+//| The cooldown outlives the EA.                                    |
+//|                                                                  |
+//| Recompiling, changing an input or restarting the terminal tears  |
+//| the EA down and builds it again, and a cooldown held in a plain  |
+//| variable would be lost with it - so the level just traded could  |
+//| be taken again on the very next candle. It lives in terminal     |
+//| global variables instead, keyed by symbol and magic rather than  |
+//| by chart, so it survives the chart being closed and reopened     |
+//| too. The same trick PO3_Levels.mq5 uses for its session timer.   |
+//+------------------------------------------------------------------+
+string CooldownKey(const Track &t, const string suffix)
+  {
+   return(EA_PREFIX + _Symbol + "_" + IntegerToString(t.magic) + suffix);
+  }
+
+void LoadCooldown(Track &t)
+  {
+   string kl = CooldownKey(t, "_lvl");
+   string kt = CooldownKey(t, "_time");
+   if(!GlobalVariableCheck(kl) || !GlobalVariableCheck(kt))
+      return;
+
+   //--- the direction rides in the sign, so one number carries both
+   double signedLevel = GlobalVariableGet(kl);
+   t.lastLevel  = MathAbs(signedLevel);
+   t.lastDir    = (signedLevel < 0.0) ? -1 : 1;
+   t.lastSignal = (datetime)GlobalVariableGet(kt);
+
+   PrintFormat("PO3 %I64d: picked the cooldown back up - last was a %s at %s on %s.",
+               t.grid, t.lastDir > 0 ? "long" : "short",
+               DoubleToString(t.lastLevel, 2),
+               TimeToString(t.lastSignal, TIME_DATE | TIME_MINUTES));
+  }
+
+void SaveCooldown(const Track &t)
+  {
+   GlobalVariableSet(CooldownKey(t, "_lvl"),  t.lastLevel * t.lastDir);
+   GlobalVariableSet(CooldownKey(t, "_time"), (double)t.lastSignal);
+  }
+
 //--- inside the trading window, wrapping windows included
 bool InWindow()
   {
@@ -559,10 +622,11 @@ void Scan(Track &t)
       int    dir   = (k == 0) ? -1 : 1;                       // -1 short, +1 long
       double level = PO3Nearest((dir < 0) ? b.high : b.low, t.grid, InpScale);
 
-      string why = "";
-      if(!Rejects(b, t, level, dir, tol, atr, why))
+      string why      = "";
+      bool   nearMiss = false;
+      if(!Rejects(b, t, level, dir, tol, atr, why, nearMiss))
         {
-         if(InpVerbose && MathAbs(((dir < 0) ? b.high : b.low) - level) <= tol)
+         if(InpVerbose && nearMiss)
             PrintFormat("PO3 %I64d: %s at %s passed on - %s",
                         t.grid, dir > 0 ? "long" : "short",
                         DoubleToString(level, 2), why);
@@ -698,6 +762,7 @@ void Scan(Track &t)
          t.lastLevel  = level;
          t.lastDir    = dir;
          t.lastSignal = b.time;
+         SaveCooldown(t);
          MarkSignal(t, b.time, (dir > 0) ? b.low : b.high, dir, level);
         }
       return;   // one setup per candle
@@ -812,6 +877,8 @@ int OnInit()
       //--- attaching reads as a new bar and the EA would trade off whatever
       //--- candle happened to have closed last, which nobody asked it to see.
       g_tr[k].lastBar = iTime(_Symbol, g_tr[k].tf, 0);
+
+      LoadCooldown(g_tr[k]);
      }
 
    g_tick = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
@@ -868,9 +935,10 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
   {
+   //--- Not gated on the track being on: switching a track off with a runner
+   //--- already open would otherwise strand it without its break-even.
    for(int k = 0; k < TRACKS; k++)
-      if(g_tr[k].on)
-         ManageRunner(g_tr[k]);
+      ManageRunner(g_tr[k]);
 
    Panel();
 
