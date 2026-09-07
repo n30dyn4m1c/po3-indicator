@@ -5,13 +5,16 @@
 [![Language](https://img.shields.io/badge/Language-MQL5-orange.svg)](https://www.mql5.com/)
 [![Also](https://img.shields.io/badge/Also-Pine%20Script%20v5-green.svg)](https://www.tradingview.com/pine-script-docs/)
 
-**MetaTrader 5 indicator that draws Power of Three (PO3) support and resistance levels on XAUUSD, with a checkbox per PO3 number from 3 to 19683 and a TradingView Pine companion.**
+**MetaTrader 5 indicator that draws Power of Three (PO3) support and resistance levels on XAUUSD, with a checkbox per PO3 number from 3 to 19683, a TradingView Pine companion, and an Expert Advisor that scalps rejections of the 9 and 27 grids.**
 
 Levels are multiples of powers of three — 3, 9, 27, 81, 243, 729, 2187, 6561,
 19683 — drawn around current price. Nothing is fitted, optimised or inferred
 from price action: a level either is a multiple of a power of three or it is
 not. The MT5 indicator draws lines only. It places no orders and reads no
 account state.
+
+`PO3_Scalper.mq5` is the exception to "places no orders": it is an EA, and it
+trades. The indicator it ships beside is unchanged and still draws only.
 
 Based on the Power of Three / Goldbach level model taught by **Hopiplaka**.
 
@@ -71,7 +74,9 @@ checkbox order it is registered in.
 ## Files
 
 ```text
+PO3_Core.mqh            Shared PO3 level maths, used by the EA
 PO3_Levels.mq5          MetaTrader 5 indicator, whole-number PO3 grids by checkbox
+PO3_Scalper.mq5         MetaTrader 5 Expert Advisor, scalps rejections of the 9 and 27 grids
 PO3_Gold_Levels.pine    TradingView Pine v5, fixed gold level list from the workbook
 ```
 
@@ -89,6 +94,15 @@ faithful to the same model; loading both will not give you the same lines.
 2. Copy `PO3_Levels.mq5` into `MQL5/Indicators/`
 3. Open it in MetaEditor and compile with `F7`
 4. In MT5: Navigator → Indicators → refresh → drag onto a gold chart
+
+For the EA, additionally:
+
+1. Copy `PO3_Core.mqh` into `MQL5/Include/` — the EA includes it as
+   `<PO3_Core.mqh>`, so it must be there and not beside the EA
+2. Copy `PO3_Scalper.mq5` into `MQL5/Experts/` and compile it
+3. Enable **Algo Trading** in MT5, then drag the EA onto a `#GOLDm` chart
+4. Any chart timeframe will do. The EA reads M1 and M5 from the symbol itself
+   and never looks at the period it was dropped on
 
 Changing the input list between versions means removing the indicator from the
 chart and re-adding it, since MT5 caches inputs per chart.
@@ -162,6 +176,166 @@ symbol keeps it running, since it is the same chart.
 Set *Minutes on chart before it turns red* to a limit and the timer recolours
 once you pass it and raises one alert. `0` leaves it a plain always-on clock.
 
+## PO3 Scalper (Expert Advisor)
+
+`PO3_Scalper.mq5` trades one rule: **a candle wicks into a PO3 level and closes
+back off it, so trade the other way, take profit at the next level of that same
+grid, and stop out past the end of the wick.**
+
+It runs that rule twice, on two grids at two speeds:
+
+| Track | Grid | Candles | Spacing on gold | Target |
+|-------|------|---------|-----------------|--------|
+| A | PO3 9 | M1 | $9 | the next 9 level |
+| B | PO3 27 | M5 | $27 | the next 27 level |
+
+Each track keeps its own bar clock, its own ATR, its own magic number and its
+own cooldown, so neither can shadow the other. The finer 3 grid is not traded:
+$3 on gold is inside the noise, and much of it inside the spread.
+
+### The two rejections are one rule
+
+Price that turns just short of a level and price that pokes through and closes
+back under it differ only in whether the extreme got past the level. The entry
+test is "reached it, closed back off it" either way, so both are the same
+signal and both take the same trade:
+
+| | Entry | Stop | Target | |
+|---|---|---|---|---|
+| Reverses before the level | 4381.80 | 4383.11 | 4374.00 | 6.0R |
+| Breaks over, then reverses | 4382.30 | 4383.91 | 4374.00 | 5.2R |
+
+*A bearish M1 rejection of the 9 level at 4383, ATR $0.60.*
+
+`Past this much ATR beyond the level it broke, not swept` draws the line past
+which the level genuinely broke rather than being swept, and no trade is taken.
+
+### The candle has a floor and a ceiling
+
+Under the floor there is no rejection to read. Over the ceiling there is too
+much movement to fade: **a candle taller than one 9 cell, wick to wick, is
+skipped on both tracks** — the cap is the 9 grid even for the 27 track, because
+it is a statement about how volatile the market has become rather than about
+which grid is being traded.
+
+The arithmetic behind it, for a bearish rejection of the 9 level at 4383 on M5:
+
+| Candle height | Entry | Stop | Risk | Target | Reward | R |
+|---|---|---|---|---|---|---|
+| $2.10 | 4381.50 | 4384.27 | 2.77 | 4374.00 | 7.50 | **2.70** |
+| $4.90 | 4378.90 | 4384.27 | 5.38 | 4374.00 | 4.90 | 0.91 |
+| $7.40 | 4376.30 | 4384.27 | 7.97 | 4374.00 | 2.30 | 0.29 |
+| $9.30 | 4374.40 | 4384.27 | 9.88 | 4374.00 | 0.40 | 0.04 |
+
+The taller the candle, the more of the $9 cell its wick has already eaten, so
+the stop grows and the target shrinks by the same dollar and R collapses toward
+zero. *Skip if the target is worth less than this many stops* catches most of
+that band on its own — at the default of `1.0` it already blocks everything
+from about $3 up — so the height cap is not new protection so much as the same
+rule stated plainly, with its own line in the log, and one that keeps holding
+if the R floor is ever lowered.
+
+### Structure it reads but does not trade on
+
+Powers of three nest, so every third 9 level is also a 27 level, and a 27 range
+holds three 9 cells that read as discount, equilibrium and premium. On gold the
+27 range `[4374 .. 4401]` has its interior 9 levels at 4383 and 4392 — exactly
+the 33.3% and 66.7% thirds — with equilibrium at 4387.50.
+
+A 27 level is the stronger of the two and generally holds its first test,
+turning into support only once price has closed decisively above it. So each 27
+level has a state, support or resistance, and the EA reads it back from bar
+history on every signal — how many times the zone has been tested, how many
+decisive closes have crossed it, which side price settled on, and how recently
+it flipped. That is **computed, logged and shown, but not used to filter** by
+default, so the traded rule stays the simple one. Three inputs turn it into a
+filter when you want it:
+
+- *Skip setups that fight a recently flipped 27 level*
+- *Skip levels chopped through more than this many times*
+- *Only trade toward the equilibrium of the 27 range* — discount buys, premium
+  sells
+
+The state is read from history rather than kept in memory, so a restart, a
+recompile or a timeframe change cannot leave the EA holding a stale view of a
+level it never saw trade.
+
+### Size, and why there is no partial close
+
+Lots are fixed at `0.1`, the XM micro minimum, and clamped to whatever the
+symbol will actually accept. Contract size and tick value are read from the
+symbol rather than assumed, so sizing is right whether `#GOLDm` is quoted at 10
+or 100 oz per lot.
+
+**A second target needs a second position.** Part-closing 0.1 lots would leave
+0.05, which is under the minimum, and the broker rejects it. So the *runner
+leg* input opens a second 0.1 position aimed further out, with its stop pulled
+to break-even once the first leg closes. That doubles the risk on any setup
+stopped before the first target, which is why it is **off** by default.
+
+The runner needs nothing remembered between ticks: the first leg being absent
+while the runner is still open *is* the first target having filled, because a
+stop would have taken both legs together.
+
+### Inputs
+
+| Group | Input | Default | Notes |
+|-------|-------|---------|-------|
+| Symbol and size | Trade only if the symbol name contains this | `GOLD` | The EA refuses to load otherwise; the grids are gold figures |
+| | Magic base | `903000` | Track A takes base+0 and +1, track B base+10 and +11 |
+| | Lots per leg | `0.1` | Raised automatically if the symbol's minimum is higher |
+| | Scale divisor | `1.0` | As the indicator |
+| Track A — PO3 9 | Trade the 9 grid | `true` | |
+| | Candles to read | `M1` | |
+| | Zone floor / min candle / stop floor, in points | `20` / `15` / `15` | |
+| | Target this many 9 levels away | `1` | |
+| | Cooldown bars, setups per day | `5`, `0` | `0` is no daily cap |
+| Track B — PO3 27 | Trade the 27 grid | `true` | |
+| | Candles to read | `M5` | |
+| | Zone floor / min candle / stop floor, in points | `40` / `40` / `30` | |
+| | Target this many 27 levels away | `1` | |
+| | Cooldown bars, setups per day | `3`, `0` | |
+| Rejection shape | Zone around a level, in ATR | `0.25` | Capped at a fraction of the grid, so adjacent zones cannot overlap |
+| | Zone ceiling, as a fraction of the grid | `0.25` | |
+| | Rejecting wick, as a % of the candle | `50` | The wick is the whole signal |
+| | Largest body, as a % of the candle | `45` | Keeps trend bars out |
+| | Ignore candles taller than this many 9 grids | `1.0` | $9 wick to wick, on both tracks; `0` is off |
+| | Close must clear the level by this much ATR | `0.05` | |
+| | Past this much ATR beyond the level it broke | `1.20` | `0` removes the cap |
+| Stop and target | Stop past the wick end, in ATR | `0.35` | Whichever is larger, this or the track's point floor |
+| | Skip if the target is worth less than this many stops | `1.0` | |
+| Runner leg | Open a second leg | `false` | See above — it doubles the risk |
+| | Extra levels out, break-even, offset | `1`, `true`, `10` | |
+| Filters | Skip if the spread is wider than this | `40` points | |
+| | Trading window, server time | `8` to `21` | Skips the daily gold break |
+| | Let one track open against the other's trade | `false` | Otherwise the two pay both spreads to cancel out |
+| PO3 structure | Bars of history the state is read from | `300` | |
+| | A close this far past a level flips it | `0.30` ATR | |
+| | A flip this recent makes the next touch a retest | `30` bars | |
+| | The three structure filters | all off | See above |
+| Display | Chart panel, signal marks, verbose log | all on | |
+
+The panel shows both tracks, where price sits in its 27 range, and whether the
+window is open. Signal candles are marked with an arrow and left on the chart
+on purpose — they are the record of what the EA saw, and a recompile should not
+wipe it.
+
+### Before you run it
+
+**The M1 track has a long target against a short stop.** A $9 target on an M1
+wick whose stop is a dollar or two away is a 5–8R trade, which is only
+profitable at a low hit rate — most of these stop out, and the arithmetic
+depends on the few that do not. That is what asking for "the next 9 level" from
+an M1 candle produces; it is not a flaw in the code, but it is the number to
+check first in the Strategy Tester. Raising *Target this many 9 levels away* is
+the wrong lever if the R is already too high; the honest ones are the wick and
+body percentages, and the trading window.
+
+Test on a demo account first. Every rejected setup is logged with the reason it
+was passed on, so a track that takes no trades can be told apart from one that
+is never being offered any.
+
+
 ## Notes
 
 - Levels were checked against the source workbook's gold sheet for 14 March
@@ -179,12 +353,20 @@ once you pass it and raises one alert. `0` leaves it a plain always-on clock.
   digit count could only move a level off it.
 - The source workbook and course PDF are not redistributed here. Every level
   they contain is reproduced by the code.
+- The EA takes its levels from `PO3_Core.mqh`, so it cannot end up trading a
+  different grid from the one the indicator draws. The indicator still carries
+  its own copy of the maths and is untouched by the EA.
 
 ## Disclaimer
 
-For educational and analytical use. These are chart levels, not trade signals,
-and neither file places orders or manages positions. Trading carries risk of
-loss. Test on a demo account and do your own analysis before risking capital.
+For educational and analytical use. `PO3_Levels.mq5` and `PO3_Gold_Levels.pine`
+draw chart levels, not trade signals, and place no orders.
+
+`PO3_Scalper.mq5` does place orders and manage positions. It is a starting
+point, not a tested strategy: no edge is claimed for it, and it has not been
+run against a broker's tick history here. Trading carries risk of loss. Run it
+on a demo account, read the log, and do your own analysis before risking
+capital.
 
 ## License
 
