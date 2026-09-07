@@ -23,7 +23,7 @@ Based on the Power of Three / Goldbach level model taught by **Hopiplaka**.
 - Width and style follow magnitude, so stronger levels read as stronger lines
 - PO3 number written on each line, with a threshold to keep fine grids unlabelled
 - Whole-number levels by default on gold; a scale divisor switches to the two-decimal form
-- Countdown to the current candle's close, in units that follow the chart timeframe
+- Countdown to the current candle's close beside that candle, in units that follow the chart timeframe
 - Session timer for capping screen time, unaffected by switching timeframe
 - Redraws only when price crosses a grid cell or a new bar opens, not on every tick
 
@@ -109,12 +109,12 @@ Open Pine Editor, paste `PO3_Gold_Levels.pine`, save, then Add to chart.
 | Label text size | `7` | |
 | Label shift right, in bars | `0` | `0` anchors at the last bar, always on screen |
 | Show 3 … Show 19683 | `243`, `729`, `2187` on | One checkbox and one colour per PO3 number |
-| Show time left on the current candle | `true` | |
-| Corner | `CORNER_RIGHT_UPPER` | X and Y measure inward from the corner you pick |
-| Distance from corner, X / Y | `12` / `18` | |
+| Show time left on the current candle | `true` | Printed beside the developing candle, level with price |
+| Bars right of the developing candle | `1` | `0` puts it beside the candle, ending at it; needs chart shift on to sit further right |
+| Vertical offset from price, in points | `0` | Positive lifts the text above price |
 | Text size | `10` | |
 | Text colour | `clrSilver` | |
-| Show time spent on this chart | `true` | The session timer, second line below the countdown by default |
+| Show time spent on this chart | `true` | The session timer, in a screen corner |
 | Corner (session) | `CORNER_RIGHT_UPPER` | |
 | Distance from corner, X / Y (session) | `12` / `40` | |
 | Text size (session) | `10` | |
@@ -136,6 +136,14 @@ in units that follow the period — `M15  14:59` counting down minutes and
 seconds, `H4  03:59:59`, `D1  23:59:59`, `W1  6d 23:59:59`. It runs off a
 one-second timer rather than incoming ticks, so it keeps counting through a
 quiet session instead of freezing between trades.
+
+It sits next to the developing candle, anchored to that candle's time and to
+the current price, so it travels with the candle as the chart scrolls and rides
+price as it moves — the time left is read in the same glance as the candle it
+belongs to. *Bars right of the developing candle* moves it; past the last bar
+the text reads rightwards into the empty space, and at `0` or behind it the
+text ends at the anchor, which keeps it on screen with chart shift switched
+off.
 
 ### Session timer
 

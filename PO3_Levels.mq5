@@ -61,12 +61,15 @@ input int    InpFontSize    = 7;    // Label text size
 input int    InpLabelShift  = 0;    // Label shift right, in bars (0 = at the last bar)
 
 input group "Candle countdown";
-input bool            InpShowClock  = true;              // Show time left on the current candle
-input ENUM_BASE_CORNER InpClockCorner = CORNER_RIGHT_UPPER; // Corner
-input int             InpClockX     = 12;                // Distance from corner, X
-input int             InpClockY     = 18;                // Distance from corner, Y
-input int             InpClockSize  = 10;                // Text size
-input color           InpClockColor = clrSilver;         // Text colour
+//--- The countdown rides the developing candle rather than sitting in a corner,
+//--- so the time left is read in the same glance as the candle it belongs to.
+//--- It is anchored to that candle's time and to the current price, so it
+//--- travels with both. See UpdateClock.
+input bool   InpShowClock   = true;      // Show time left on the current candle
+input int    InpClockShift  = 1;         // Bars right of the developing candle (0 = beside it)
+input int    InpClockGapPts = 0;         // Vertical offset from price, in points (+ up)
+input int    InpClockSize   = 10;        // Text size
+input color  InpClockColor  = clrSilver; // Text colour
 
 input group "Session timer";
 //--- Wall-clock time this chart has been open, for capping screen time. It
@@ -102,6 +105,10 @@ input bool  InpUse_19683 = false;              // 19683  - show
 input color InpCol_19683 = clrCrimson;         // 19683  - colour
 
 #define PO3_PREFIX  "PO3_"
+//--- Level lines and their labels share a sub-prefix so the redraw sweep can
+//--- take them alone. The countdown is an OBJ_TEXT too, and a sweep by type
+//--- over the whole prefix would delete it on every rebuild.
+#define PO3_LEVEL   "PO3_L"
 #define PO3_COUNT   9
 
 //--- resolved table, built in OnInit, ascending by PO3 number
@@ -286,7 +293,7 @@ void OnDeinit(const int reason)
 void DrawLevel(const long raw, const int idx, const datetime labelTime)
   {
    double price = (double)raw / InpScale;
-   string name  = PO3_PREFIX + IntegerToString(raw);
+   string name  = PO3_LEVEL + IntegerToString(raw);
 
    //--- a failed create means the object survived the sweep, so fall through
    //    and restyle it rather than leaving it on stale settings
@@ -313,7 +320,7 @@ void DrawLevel(const long raw, const int idx, const datetime labelTime)
 
    //--- The label carries the owning PO3 number, so a merged level reads as the
    //--- strongest grid that produced it, matching the colour it was given.
-   string tname = PO3_PREFIX + "T" + IntegerToString(raw);
+   string tname = PO3_LEVEL + "T" + IntegerToString(raw);
 
    ObjectCreate(0, tname, OBJ_TEXT, 0, labelTime, price);
 
@@ -338,10 +345,10 @@ void DrawLevel(const long raw, const int idx, const datetime labelTime)
 void Rebuild(const double price, const datetime labelTime)
   {
    //--- Only the level objects. A blanket delete by prefix would take the
-   //--- countdown label with it on every redraw, and the clock would flicker
+   //--- countdown text with it on every redraw, and the clock would flicker
    //--- out whenever price crossed a grid cell.
-   ObjectsDeleteAll(0, PO3_PREFIX, -1, OBJ_HLINE);
-   ObjectsDeleteAll(0, PO3_PREFIX, -1, OBJ_TEXT);
+   ObjectsDeleteAll(0, PO3_LEVEL, -1, OBJ_HLINE);
+   ObjectsDeleteAll(0, PO3_LEVEL, -1, OBJ_TEXT);
 
    if(g_n <= 0)
      {
@@ -443,10 +450,7 @@ string HMS(const long secs)
   }
 
 //+------------------------------------------------------------------+
-//| Screen-anchored, so it stays put as the chart scrolls.           |
-//|                                                                  |
-//| MN1 is nominal: PeriodSeconds() calls a month 30 days, so the    |
-//| monthly countdown is approximate. Every other timeframe is exact.|
+//| The anchor that suits a screen corner, for the session timer.    |
 //+------------------------------------------------------------------+
 ENUM_ANCHOR_POINT AnchorFor(const ENUM_BASE_CORNER c)
   {
@@ -462,6 +466,17 @@ ENUM_ANCHOR_POINT AnchorFor(const ENUM_BASE_CORNER c)
      }
   }
 
+//+------------------------------------------------------------------+
+//| Time left on the developing candle, printed beside that candle.  |
+//|                                                                  |
+//| Anchored to the open time of bar 0 and to the current price, so  |
+//| the text tracks the candle as the chart scrolls and rides price  |
+//| as it moves, instead of parking in a corner away from the bar it |
+//| describes.                                                       |
+//|                                                                  |
+//| MN1 is nominal: PeriodSeconds() calls a month 30 days, so the    |
+//| monthly countdown is approximate. Every other timeframe is exact.|
+//+------------------------------------------------------------------+
 void UpdateClock()
   {
    string name = PO3_PREFIX + "CLOCK";
@@ -472,20 +487,33 @@ void UpdateClock()
       return;
      }
 
-   datetime open = iTime(_Symbol, _Period, 0);
-   if(open == 0)
+   datetime open  = iTime (_Symbol, _Period, 0);
+   double   price = iClose(_Symbol, _Period, 0);
+   if(open == 0 || price <= 0.0)
       return;                                   // history not ready yet
 
    long left = (long)(open + PeriodSeconds()) - (long)TimeCurrent();
 
-   ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
-   ObjectSetInteger(0, name, OBJPROP_CORNER,     InpClockCorner);
-   ObjectSetInteger(0, name, OBJPROP_XDISTANCE,  InpClockX);
-   ObjectSetInteger(0, name, OBJPROP_YDISTANCE,  InpClockY);
-   ObjectSetInteger(0, name, OBJPROP_ANCHOR,     AnchorFor(InpClockCorner));
+   //--- Shift is in bars, so the gap to the candle holds at every zoom level.
+   //--- Signed arithmetic before the cast: a negative shift on an unsigned
+   //--- datetime would wrap and throw the text to the far end of the chart.
+   long     bars = (long)PeriodSeconds() * InpClockShift;
+   datetime at   = (datetime)MathMax(0, (long)open + bars);
+
+   //--- Past the last bar the text has to read rightwards, into the empty
+   //--- space; at or behind it, ending at the anchor keeps the text off the
+   //--- candles and, with chart shift off, on screen.
+   ENUM_ANCHOR_POINT anchor = (InpClockShift > 0) ? ANCHOR_LEFT : ANCHOR_RIGHT;
+
+   ObjectCreate(0, name, OBJ_TEXT, 0, at, price);
+
+   ObjectSetInteger(0, name, OBJPROP_TIME,       at);
+   ObjectSetDouble (0, name, OBJPROP_PRICE,      price + InpClockGapPts * _Point);
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR,     anchor);
    ObjectSetString (0, name, OBJPROP_TEXT,       TfName() + "  " + HMS(left));
    ObjectSetInteger(0, name, OBJPROP_COLOR,      InpClockColor);
    ObjectSetInteger(0, name, OBJPROP_FONTSIZE,   (int)MathMax(6, MathMin(24, InpClockSize)));
+   ObjectSetInteger(0, name, OBJPROP_BACK,       false);
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_SELECTED,   false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN,     true);
