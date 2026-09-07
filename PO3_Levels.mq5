@@ -41,7 +41,7 @@
 //|   19683  around 2950 -> 2755.62 .. 3149.28   (row 40, x14..16)   |
 //+------------------------------------------------------------------+
 #property copyright "PO3 Levels"
-#property version   "1.31"
+#property version   "1.32"
 #property indicator_chart_window
 #property indicator_buffers 0
 #property indicator_plots   0
@@ -56,7 +56,7 @@ input bool   InpLinesBehind = false; // Draw lines behind the candles
 
 input group "Labels";
 input bool   InpShowLabels  = true; // Write the PO3 number on each line
-input int    InpLabelMinPO3 = 243;  // Label only levels of PO3 >= this
+input int    InpLabelMinPO3 = 3;    // Label only levels of PO3 >= this
 input int    InpFontSize    = 7;    // Label text size
 input int    InpLabelShift  = 0;    // Label shift right, in bars (0 = at the last bar)
 
@@ -85,13 +85,17 @@ input int              InpSessionLimitMin = 0;                   // Minutes on c
 input color            InpSessionOverColor = clrTomato;          // Text colour once over the limit
 
 input group "PO3 levels to show";
-input bool  InpUse_3     = false;              // 3      - show
+//--- Every grid is on by default: the model is the whole nest of powers, and a
+//--- level's strength is meant to be read from how many grids agree on it, which
+//--- is only visible with all of them drawn. Untick the fine ones for a quieter
+//--- chart; the levels that remain do not move.
+input bool  InpUse_3     = true;               // 3      - show
 input color InpCol_3     = clrGray;            // 3      - colour
-input bool  InpUse_9     = false;              // 9      - show
+input bool  InpUse_9     = true;               // 9      - show
 input color InpCol_9     = clrDarkGray;        // 9      - colour
-input bool  InpUse_27    = false;              // 27     - show
+input bool  InpUse_27    = true;               // 27     - show
 input color InpCol_27    = clrCadetBlue;       // 27     - colour
-input bool  InpUse_81    = false;              // 81     - show
+input bool  InpUse_81    = true;               // 81     - show
 input color InpCol_81    = clrSteelBlue;       // 81     - colour
 input bool  InpUse_243   = true;               // 243    - show
 input color InpCol_243   = clrMediumSeaGreen;  // 243    - colour
@@ -99,9 +103,9 @@ input bool  InpUse_729   = true;               // 729    - show
 input color InpCol_729   = clrDarkOrange;      // 729    - colour
 input bool  InpUse_2187  = true;               // 2187   - show
 input color InpCol_2187  = clrGoldenrod;       // 2187   - colour
-input bool  InpUse_6561  = false;              // 6561   - show
+input bool  InpUse_6561  = true;               // 6561   - show
 input color InpCol_6561  = clrOrangeRed;       // 6561   - colour
-input bool  InpUse_19683 = false;              // 19683  - show
+input bool  InpUse_19683 = true;               // 19683  - show
 input color InpCol_19683 = clrCrimson;         // 19683  - colour
 
 #define PO3_PREFIX  "PO3_"
@@ -312,9 +316,10 @@ void DrawLevel(const long raw, const int idx, const datetime labelTime)
                                  PriceText(price),
                                  g_po3[idx], raw / (long)g_po3[idx]));
 
-   //--- Every label shares one time anchor, so labelling the fine grids too
-   //--- would pile digits on top of each other: ticking 3 puts levels $3 apart,
-   //--- far closer than a line of text is tall. Label the stronger grids only.
+   //--- Every label shares one time anchor, so the fine grids can pile digits on
+   //--- top of each other: 3 puts levels $3 apart, far closer than a line of
+   //--- text is tall. The threshold thins them - raise it to label the stronger
+   //--- grids only, at the cost of not being able to name the lines it hides.
    if(!InpShowLabels || g_po3[idx] < InpLabelMinPO3)
       return;
 

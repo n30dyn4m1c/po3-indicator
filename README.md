@@ -105,10 +105,10 @@ Open Pine Editor, paste `PO3_Gold_Levels.pine`, save, then Add to chart.
 | Levels each side of price | `3` | Applies per ticked grid; clamped to 1–100 |
 | Draw lines behind the candles | `false` | Fine grids sit where the candles are, so the default draws in front |
 | Write the PO3 number on each line | `true` | |
-| Label only levels of PO3 >= | `243` | Every label shares one time anchor; labelling `3` would stack digits |
+| Label only levels of PO3 >= | `3` | Everything is labelled; every label shares one time anchor, so raise this if the fine grids stack digits |
 | Label text size | `7` | |
 | Label shift right, in bars | `0` | `0` anchors at the last bar, always on screen |
-| Show 3 … Show 19683 | `243`, `729`, `2187` on | One checkbox and one colour per PO3 number |
+| Show 3 … Show 19683 | all on | One checkbox and one colour per PO3 number; untick the fine grids for a quieter chart |
 | Show time left on the current candle | `true` | Printed beside the developing candle, level with price |
 | Bars right of the developing candle | `1` | `0` puts it beside the candle, ending at it; needs chart shift on to sit further right |
 | Vertical offset from price, in points | `0` | Positive lifts the text above price |
