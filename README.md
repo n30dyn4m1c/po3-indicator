@@ -328,6 +328,9 @@ stop would have taken both legs together.
 | | Skip if the target is worth less than this many stops | `1.0` | |
 | Runner leg | Open a second leg | `false` | See above — it doubles the risk |
 | | Extra levels out, break-even, offset | `1`, `true`, `10` | |
+| Protection | Read the stop back off the position | `true` | Repairs it, or closes the position if it cannot be protected |
+| | Retries on a requote or a moved price | `2` | |
+| | Flatten and stop trading at this hour on Friday | `20` server time | `-1` leaves positions to ride the weekend |
 | Filters | Skip if the spread is wider than this | `40` points | |
 | | Trading window, server time | `8` to `21` | Skips the daily gold break |
 | | Let one track open against the other's trade | `false` | Otherwise the two pay both spreads to cancel out |
@@ -343,6 +346,26 @@ The panel shows both tracks, where price sits in its 27 range, and whether the
 window is open. Signal candles are marked with an arrow and left on the chart
 on purpose — they are the record of what the EA saw, and a recompile should not
 wipe it.
+
+### Two things that can lose more than the stop says
+
+**An accepted order is not an attached stop.** `Buy()` returning true means the
+*order* was accepted, not that the SL and TP reached the position. On market
+execution — which XM uses on several account types — a broker may strip them
+and expect a separate modify. So the EA reads the stop back off the position
+after the fill, attaches it if it is missing, and **closes the position** if it
+cannot attach one after three tries. Being flat is a known loss; being naked is
+not a bounded one. The log says which happened.
+
+**A stop bounds a loss only while the market is trading through it.** Entries
+stop at the end of the window, but nothing used to close a position, so a
+Friday afternoon trade rode the weekend — and gold's weekend gap runs far past
+any stop this EA sets, opening beyond it rather than at it. From
+`Flatten and stop trading at this hour on Friday` the EA closes what it holds
+and opens nothing further until the new week. Set it to `-1` to switch that off.
+
+Neither is a cap on trading. They bound what a *single open position* can cost
+when the mechanism the stop relies on is not there.
 
 ### Running it in the Strategy Tester
 
@@ -361,6 +384,9 @@ is irrelevant to the logic** — but the tick model is not:
   cannot tell you which track earned or lost what.
 - Give it months, not weeks. A high-R, low-hit-rate rule needs a lot of trades
   before its average means anything.
+- The Friday flatten shortens Friday to the window's start until `20:00`. If
+  your broker's server clock is offset from what you expect, that is the input
+  to check first — it is server time, not yours.
 
 The log names every setup it passed on and why, but only for candles that
 reached a level and closed back off it — the ones that were nearly trades.

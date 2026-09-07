@@ -132,6 +132,20 @@ input bool   InpUseStateFilter  = true;     // Skip setups that fight a recently
 input int    InpMaxFlips        = 0;        // Skip levels chopped through more than this many times (0 = off)
 input bool   InpUsePDFilter     = true;     // Only trade toward the equilibrium of the 27 range
 
+input group "Protection";
+//--- A market order being accepted is not the same as its stop being attached.
+//--- On market execution, which XM uses on several account types, a broker may
+//--- strip SL and TP from the order and expect a separate modify - so the stop
+//--- is read back off the position and repaired, and the position is closed if
+//--- it cannot be protected at all. A scalper with no stop is the one failure
+//--- worth spending a round trip to rule out.
+input bool   InpVerifyStops     = true;     // Read the stop back off the position, repair or close
+input int    InpSendRetries     = 2;        // Retries on a requote or a moved price
+//--- Entries stop at the end of the window, but nothing closed a position, so a
+//--- Friday afternoon trade rode the weekend. A gap does not respect a stop, it
+//--- jumps it, and gold gaps far further than any stop this EA sets.
+input int    InpFridayFlatten   = 20;       // Flatten and stop trading at this hour on Friday, server time (-1 = off)
+
 input group "Display and logging";
 input bool   InpPanel           = true;     // Chart panel
 input bool   InpMarkTrades      = true;     // Mark signal candles on the chart
@@ -540,6 +554,173 @@ bool DayCapReached(Track &t)
    return(t.maxDay > 0 && t.todayCount >= t.maxDay);
   }
 
+//--- the most recently opened position carrying this magic
+ulong NewestPosition(const long magic)
+  {
+   ulong    best = 0;
+   datetime when = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong tk = PositionGetTicket(i);
+      if(tk == 0 || !PositionSelectByTicket(tk))
+         continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol
+         || PositionGetInteger(POSITION_MAGIC) != magic)
+         continue;
+      datetime t = (datetime)PositionGetInteger(POSITION_TIME);
+      if(t >= when)
+        { when = t; best = tk; }
+     }
+   return(best);
+  }
+
+//--- failures worth trying again: the price moved under us, not a bad request
+bool IsTransient(const uint code)
+  {
+   return(code == TRADE_RETCODE_REQUOTE
+          || code == TRADE_RETCODE_PRICE_CHANGED
+          || code == TRADE_RETCODE_PRICE_OFF
+          || code == TRADE_RETCODE_TIMEOUT
+          || code == TRADE_RETCODE_CONNECTION);
+  }
+
+//+------------------------------------------------------------------+
+//| Send one leg, trying again if the price moved.                   |
+//|                                                                  |
+//| The stop and target are absolute prices rather than distances,   |
+//| so a retry at a new price still aims at the same PO3 levels. A   |
+//| rejection that is not transient is not retried: the request      |
+//| itself was wrong, and repeating it only repeats the error.       |
+//+------------------------------------------------------------------+
+bool SendWithRetry(const int dir, const double sl, const double tp,
+                   const string tag, const long magic, const string what)
+  {
+   g_trade.SetExpertMagicNumber(magic);
+
+   int tries = 1 + MathMax(0, InpSendRetries);
+   for(int i = 0; i < tries; i++)
+     {
+      bool ok = (dir > 0) ? g_trade.Buy (g_lot, _Symbol, 0.0, sl, tp, tag)
+                          : g_trade.Sell(g_lot, _Symbol, 0.0, sl, tp, tag);
+      if(ok)
+         return(true);
+
+      uint code = g_trade.ResultRetcode();
+      if(!IsTransient(code) || i == tries - 1)
+        {
+         PrintFormat("PO3: %s rejected, %d %s%s", what, code,
+                     g_trade.ResultRetcodeDescription(),
+                     IsTransient(code) ? " - out of retries" : "");
+         return(false);
+        }
+
+      PrintFormat("PO3: %s got %d %s, trying again (%d of %d)", what, code,
+                  g_trade.ResultRetcodeDescription(), i + 1, tries - 1);
+      Sleep(300);
+     }
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| Read the stop back off the position, and insist on one.          |
+//|                                                                  |
+//| An accepted order is not an attached stop. If the broker dropped |
+//| it, put it on; if it cannot be put on, close the position -      |
+//| being flat is a known loss and being naked is not a bounded one. |
+//+------------------------------------------------------------------+
+void EnsureProtected(const long magic, const double sl, const double tp)
+  {
+   if(!InpVerifyStops)
+      return;
+
+   ulong tk = NewestPosition(magic);
+   if(tk == 0)
+     {
+      PrintFormat("PO3: order for magic %I64d was accepted but no position "
+                  "carries that magic - check the trade tab.", magic);
+      return;
+     }
+
+   for(int i = 0; i < 3; i++)
+     {
+      if(!PositionSelectByTicket(tk))
+         return;
+      if(PositionGetDouble(POSITION_SL) != 0.0)
+        {
+         if(i > 0)
+            PrintFormat("PO3: stop attached to #%I64u on attempt %d.", tk, i + 1);
+         return;
+        }
+
+      PrintFormat("PO3: #%I64u came back with no stop - attaching %s.",
+                  tk, DoubleToString(sl, _Digits));
+      g_trade.PositionModify(tk, sl, tp);
+      Sleep(300);
+     }
+
+   if(PositionSelectByTicket(tk) && PositionGetDouble(POSITION_SL) == 0.0)
+     {
+      PrintFormat("PO3: #%I64u could not be given a stop. Closing it rather "
+                  "than leaving it unprotected.", tk);
+      if(!g_trade.PositionClose(tk))
+         PrintFormat("PO3: AND THE CLOSE FAILED, %d %s - #%I64u is open with no "
+                     "stop, close it by hand.",
+                     g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription(), tk);
+     }
+  }
+
+//--- close every position this EA owns; returns how many it took
+int CloseAllEA(const string reason)
+  {
+   int closed = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong tk = PositionGetTicket(i);
+      if(tk == 0 || !PositionSelectByTicket(tk))
+         continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol)
+         continue;
+
+      long m = PositionGetInteger(POSITION_MAGIC);
+      bool mine = false;
+      for(int k = 0; k < TRACKS; k++)
+         if(m == g_tr[k].magic || m == g_tr[k].magic + 1)
+            mine = true;
+      if(!mine)
+         continue;
+
+      if(g_trade.PositionClose(tk))
+        {
+         closed++;
+         PrintFormat("PO3: closed #%I64u - %s.", tk, reason);
+        }
+      else
+        {
+         //--- A close that keeps failing is worth saying, but not on every tick
+         //--- for the rest of the session.
+         static datetime moaned = 0;
+         if(TimeCurrent() - moaned >= 60)
+           {
+            moaned = TimeCurrent();
+            PrintFormat("PO3: could not close #%I64u for %s, %d %s - still trying.",
+                        tk, reason, g_trade.ResultRetcode(),
+                        g_trade.ResultRetcodeDescription());
+           }
+        }
+     }
+   return(closed);
+  }
+
+//--- past the Friday cutoff, where a held position would face the weekend gap
+bool PastFridayCutoff()
+  {
+   if(InpFridayFlatten < 0)
+      return(false);
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   return(dt.day_of_week == 5 && dt.hour >= InpFridayFlatten);
+  }
+
 //+------------------------------------------------------------------+
 //| Open the setup: one leg to the next level of this track's grid,  |
 //| optionally a second further out. Both legs share the one stop.   |
@@ -561,24 +742,18 @@ bool Open(Track &t, const int dir, const double sl, const double tp1,
          return(false);
         }
 
-   g_trade.SetExpertMagicNumber(t.magic);
-   bool ok = (dir > 0) ? g_trade.Buy (g_lot, _Symbol, 0.0, sl, tp1, tag)
-                       : g_trade.Sell(g_lot, _Symbol, 0.0, sl, tp1, tag);
-   if(!ok)
-     {
-      PrintFormat("PO3 %I64d: entry leg rejected, %d %s",
-                  t.grid, g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription());
+   if(!SendWithRetry(dir, sl, tp1, tag, t.magic,
+                     StringFormat("PO3 %I64d entry leg", t.grid)))
       return(false);
-     }
+   EnsureProtected(t.magic, sl, tp1);
 
    if(InpRunner)
      {
-      g_trade.SetExpertMagicNumber(t.magic + 1);
-      bool ok2 = (dir > 0) ? g_trade.Buy (g_lot, _Symbol, 0.0, sl, tp2, tag + " R")
-                           : g_trade.Sell(g_lot, _Symbol, 0.0, sl, tp2, tag + " R");
-      if(!ok2)
-         PrintFormat("PO3 %I64d: runner leg rejected, %d %s - the entry leg stays open alone",
-                     t.grid, g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription());
+      if(SendWithRetry(dir, sl, tp2, tag + " R", t.magic + 1,
+                       StringFormat("PO3 %I64d runner leg", t.grid)))
+         EnsureProtected(t.magic + 1, sl, tp2);
+      else
+         PrintFormat("PO3 %I64d: the entry leg stays open alone.", t.grid);
      }
 
    t.todayCount++;
@@ -809,7 +984,9 @@ void Panel()
       DoubleToString(PO3RangeEQ(bid, GRID_27, InpScale), 2),
       zone, pos * 100.0,
       (int)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD),
-      InWindow() ? "in the trading window" : "outside the trading window"));
+      PastFridayCutoff() ? "flat for the weekend"
+                         : (InWindow() ? "in the trading window"
+                                       : "outside the trading window")));
   }
 
 //+------------------------------------------------------------------+
@@ -881,6 +1058,23 @@ int OnInit()
       LoadCooldown(g_tr[k]);
      }
 
+   //--- Fail here rather than at the first order. A close-only or disabled
+   //--- symbol produces a retcode at send time that reads like a code bug.
+   if(!SymbolSelect(_Symbol, true))
+     {
+      PrintFormat("PO3 Scalper: %s could not be selected in Market Watch.", _Symbol);
+      return(INIT_FAILED);
+     }
+   ENUM_SYMBOL_TRADE_MODE mode =
+      (ENUM_SYMBOL_TRADE_MODE)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE);
+   if(mode != SYMBOL_TRADE_MODE_FULL)
+     {
+      PrintFormat("PO3 Scalper: %s is not fully tradeable (%s). Nothing this EA "
+                  "does will work until that changes.",
+                  _Symbol, EnumToString(mode));
+      return(INIT_FAILED);
+     }
+
    g_tick = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
 
    //--- Size is clamped to what the symbol will accept rather than assumed. On
@@ -918,6 +1112,15 @@ int OnInit()
                                  InpMaxRangeP9 * PO3Step(GRID_9, InpScale))
                   : "The candle height cap is off. ");
 
+   PrintFormat("PO3 Scalper: stops are %s; %s.",
+               InpVerifyStops ? "read back off the position and repaired if the "
+                                "broker dropped them"
+                              : "NOT verified after the fill",
+               InpFridayFlatten >= 0
+                  ? StringFormat("open positions are closed at %02d:00 server time "
+                                 "on Friday", InpFridayFlatten)
+                  : "positions are left to ride the weekend");
+
    return(INIT_SUCCEEDED);
   }
 
@@ -946,6 +1149,24 @@ void OnTick()
       || !MQLInfoInteger(MQL_TRADE_ALLOWED)
       || !AccountInfoInteger(ACCOUNT_TRADE_EXPERT))
       return;
+
+   //--- Before anything else on a Friday afternoon: be flat. A stop bounds a
+   //--- loss only while the market is trading through it, and the weekend gap
+   //--- opens past it rather than at it.
+   if(PastFridayCutoff())
+     {
+      int held = 0;
+      for(int k = 0; k < TRACKS; k++)
+         held += LegCount(g_tr[k].magic) + LegCount(g_tr[k].magic + 1);
+      if(held == 0)
+         return;
+
+      int shut = CloseAllEA("flat before the weekend");
+      if(shut > 0)
+         PrintFormat("PO3: past %02d:00 Friday, closed %d position(s) and stopped "
+                     "opening until the new week.", InpFridayFlatten, shut);
+      return;
+     }
 
    bool window = InWindow();
    int  sprd   = (int)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
