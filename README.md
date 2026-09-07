@@ -112,7 +112,7 @@ Open Pine Editor, paste `PO3_Gold_Levels.pine`, save, then Add to chart.
 | Show time left on the current candle | `true` | Printed beside the developing candle, level with price |
 | Bars right of the developing candle | `1` | `0` puts it beside the candle, ending at it; needs chart shift on to sit further right |
 | Vertical offset from price, in points | `0` | Positive lifts the text above price |
-| Text size | `10` | |
+| Text size | `8` | Sized to sit among the candles without crowding them; clamped to 6-24 |
 | Text colour | `clrLimeGreen` | |
 | Show time spent on this chart | `true` | The session timer, in a screen corner |
 | Corner (session) | `CORNER_RIGHT_UPPER` | |

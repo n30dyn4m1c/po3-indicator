@@ -68,7 +68,7 @@ input group "Candle countdown";
 input bool   InpShowClock   = true;         // Show time left on the current candle
 input int    InpClockShift  = 1;            // Bars right of the developing candle (0 = beside it)
 input int    InpClockGapPts = 0;            // Vertical offset from price, in points (+ up)
-input int    InpClockSize   = 10;           // Text size
+input int    InpClockSize   = 8;            // Text size
 input color  InpClockColor  = clrLimeGreen; // Text colour
 
 input group "Session timer";
