@@ -1,22 +1,36 @@
-# PO3 Levels
+# PO3 Levels & Kihon Suchi
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/Platform-MetaTrader%205-blue.svg)](https://www.metatrader5.com/)
 [![Language](https://img.shields.io/badge/Language-MQL5-orange.svg)](https://www.mql5.com/)
 [![Also](https://img.shields.io/badge/Also-Pine%20Script%20v5-green.svg)](https://www.tradingview.com/pine-script-docs/)
 
-**MetaTrader 5 indicator that draws Power of Three (PO3) support and resistance levels on XAUUSD, with a checkbox per PO3 number from 3 to 19683, a TradingView Pine companion, and an Expert Advisor that scalps rejections of the 9 and 27 grids.**
+**MetaTrader 5 indicator that reads gold in price and in time: Power of Three (PO3) support and resistance levels, with a checkbox per PO3 number from 3 to 19683, and Ichimoku kihon suchi counts of the candles since the year, month, week and day opened. Ships with a TradingView Pine companion and an Expert Advisor that scalps rejections of the 9 and 27 grids.**
 
-Levels are multiples of powers of three — 3, 9, 27, 81, 243, 729, 2187, 6561,
-19683 — drawn around current price. Nothing is fitted, optimised or inferred
-from price action: a level either is a multiple of a power of three or it is
-not. The MT5 indicator draws lines only. It places no orders and reads no
-account state.
+**Price.** Levels are multiples of powers of three — 3, 9, 27, 81, 243, 729,
+2187, 6561, 19683 — drawn around current price. Nothing is fitted, optimised or
+inferred from price action: a level either is a multiple of a power of three or
+it is not.
+
+**Time.** The same chart counts candles from the market open and marks the
+kihon suchi numbers — 9, 17, 26, 33, 42, 51, 65, 76, 129, 172, 226, 257 — on
+that count. These are Ichimoku's basic time numbers: candles at which a move is
+due to change character. They are levels in time the way the grid is levels in
+price, and they are just as unfitted — a candle either is the 26th since the
+open or it is not.
+
+The point of having both is where they meet. A kihon suchi candle printing on a
+27 or 81 level is time and price agreeing, and neither half was tuned to make
+that happen.
+
+The MT5 indicator draws lines, text and counts only. It places no orders and
+reads no account state, and nothing in it acts on the numbers it counts.
 
 `PO3_Scalper.mq5` is the exception to "places no orders": it is an EA, and it
 trades. The indicator it ships beside is unchanged and still draws only.
 
-Based on the Power of Three / Goldbach level model taught by **Hopiplaka**.
+Based on the Power of Three / Goldbach level model taught by **Hopiplaka**, and
+on the time theory (*jikan ron*) of Goichi Hosoda's Ichimoku Kinko Hyo.
 
 ## Features
 

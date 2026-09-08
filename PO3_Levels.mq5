@@ -49,7 +49,13 @@
 //|   19683  around 2950 -> 2755.62 .. 3149.28   (row 40, x14..16)   |
 //+------------------------------------------------------------------+
 #property copyright "PO3 Levels"
-#property version   "1.33"
+#property version   "1.34"
+//--- Shown in the Navigator and in the properties dialog. The indicator does
+//--- two things now, and a name that says only "PO3 Levels" undersells half of
+//--- it to anyone reading the list.
+#property description "Power of Three support and resistance levels on gold, by checkbox from 3 to 19683."
+#property description "Also counts candles from the year, month, week and day opens and marks the"
+#property description "Ichimoku kihon suchi numbers on that count. Draws only - places no orders."
 #property indicator_chart_window
 #property indicator_buffers 0
 #property indicator_plots   0
@@ -352,7 +358,10 @@ int OnInit()
    if(g_n == 0)
      {
       Print("PO3 Levels: no PO3 number ticked, no levels will be drawn.");
-      IndicatorSetString(INDICATOR_SHORTNAME, "PO3 (none ticked)");
+      //--- No grid, but the counts may still be the reason it is on the chart
+      IndicatorSetString(INDICATOR_SHORTNAME,
+                         (InpShowCount || InpShowPanel) ? "Kihon count"
+                                                        : "PO3 (none ticked)");
       g_dirty = true;
       EventSetTimer(1);          // the countdown is independent of the levels
       return(INIT_SUCCEEDED);
@@ -377,7 +386,8 @@ int OnInit()
                   i + 1, g_n, g_po3[i],
                   PriceText((double)g_po3[i] / InpScale), g_each);
      }
-   IndicatorSetString(INDICATOR_SHORTNAME, "PO3 " + names);
+   IndicatorSetString(INDICATOR_SHORTNAME, "PO3 " + names +
+                      ((InpShowCount || InpShowPanel) ? " + kihon" : ""));
 
    g_anchor   = LONG_MIN;
    g_lastTime = 0;
