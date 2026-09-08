@@ -95,7 +95,8 @@ faithful to the same model; loading both will not give you the same lines.
 **MetaTrader 5**
 
 1. MetaEditor or MT5 → File → Open Data Folder
-2. Copy `PO3_Levels.mq5` into `MQL5/Indicators/`
+2. Copy **both** `PO3_Levels.mq5` and `PO3_Kihon.mqh` into `MQL5/Indicators/` —
+   they must sit in the same folder, and the header is not optional
 3. Open it in MetaEditor and compile with `F7`
 4. In MT5: Navigator → Indicators → refresh → drag onto a gold chart
 
@@ -111,8 +112,12 @@ For the EA, additionally:
 Rename the `.mq5` if you like; MQL5 does not care what the file is called. The
 header's name *does* matter, because the `#include` names it.
 
-> `file 'Include\PO3_Core.mqh' not found` means `PO3_Core.mqh` is not in the
-> same folder as the `.mq5`. That is the only thing it means.
+> `file '...\PO3_Kihon.mqh' not found` means `PO3_Kihon.mqh` is not in the same
+> folder as the `.mq5` — likewise `PO3_Core.mqh` for the EA. That is the only
+> thing either error means. MetaEditor names the folder it looked in, so
+> `Indicators\PO3_Kihon.mqh` not found is telling you it looked in
+> `MQL5/Indicators/` and the header was not there. Copy it and recompile;
+> nothing needs configuring.
 
 Changing the input list between versions means removing the indicator from the
 chart and re-adding it, since MT5 caches inputs per chart.
