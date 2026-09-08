@@ -135,10 +135,22 @@ input bool             InpShowYear    = true;               // Year block    - M
 input bool             InpShowMonth   = true;               // Month block   - D1, H4, H1
 input bool             InpShowWeek    = true;               // Week block    - H4, H1
 input bool             InpShowDay     = true;               // Day block     - H1 to M1
+//--- Mid left. The vertical centre is worked out from the chart height and the
+//--- number of rows rather than set as a fixed Y, because both change - the day
+//--- block grows and shrinks with the chart period, and a Y that centred a
+//--- 19-row panel would sit low on a 13-row one.
 input ENUM_BASE_CORNER InpPanelCorner = CORNER_LEFT_UPPER;  // Corner
+input bool             InpPanelMiddle = true;               // Centre it vertically (ignores Y)
 input int              InpPanelX      = 12;                 // Distance from corner, X
-input int              InpPanelY      = 20;                 // Distance from corner, Y
-input int              InpPanelSize   = 9;                  // Text size
+input int              InpPanelY      = 20;                 // Distance from corner, Y (when not centred)
+input int              InpPanelSize   = 7;                  // Text size
+
+//--- A solid block behind the rows. Over candles, unbacked text is legible
+//--- only where the chart happens to be empty, which is not something you can
+//--- rely on while reading a count.
+input bool             InpPanelBox    = true;               // Solid block behind the panel
+input color            InpPanelBg     = C'18,18,24';        // Block colour
+input color            InpPanelBorder = clrDimGray;         // Block border colour
 input color            InpPanelColor  = clrSilver;          // Text colour
 input color            InpPanelHit    = clrLime;            // Colour of a row standing ON a kihon number
 input color            InpPanelNear   = clrOrange;          // Colour of a row within reach of one
@@ -221,6 +233,10 @@ bool     g_kDirty  = true;
 datetime g_pLast    = 0;
 bool     g_pUnknown = true;
 bool     g_pDirty   = true;
+//--- A centred panel has to move when the window does, and a resize is not a
+//--- minute boundary. ChartGetInteger is a local read, so checking it every
+//--- pass costs nothing next to the rebuild it usually prevents.
+int      g_pHeight  = 0;
 
 string   g_gvStart      = "";
 string   g_gvCarry      = "";
@@ -307,6 +323,7 @@ int OnInit()
    g_pLast    = 0;
    g_pUnknown = true;
    g_pDirty   = true;
+   g_pHeight  = 0;
 
    g_n = 0;                                  // ascending, so g_po3[0] is finest
    AddPO3(InpUse_3,     3,     InpCol_3);
@@ -952,6 +969,47 @@ int KihonDayList(ENUM_TIMEFRAMES &out[])
    return(n);
   }
 
+//--- Breathing room between the text and the edge of the block behind it
+#define KP_PAD  6
+
+//+------------------------------------------------------------------+
+//| Width of the widest row, in pixels.                              |
+//|                                                                  |
+//| Measured rather than estimated from the character count: the     |
+//| block has to fit whatever font MetaTrader actually resolved, and |
+//| a block cut short of its text is worse than no block at all.     |
+//| TextSetFont takes tenths of a point when the size is negative,   |
+//| which is what OBJPROP_FONTSIZE is quoted in.                     |
+//|                                                                  |
+//| The estimate is only a fallback for TextGetSize coming back      |
+//| empty, and it is deliberately generous - too wide is invisible,  |
+//| too narrow is not.                                               |
+//+------------------------------------------------------------------+
+int PanelWidth(const string &txt[], const int n, const int size)
+  {
+   int wmax = 0;
+
+   TextSetFont("Consolas", -size * 10, 0, 0);
+
+   for(int i = 0; i < n; i++)
+     {
+      int w = 0, h = 0;
+      TextGetSize(txt[i], w, h);
+      if(w > wmax)
+         wmax = w;
+     }
+
+   if(wmax <= 0)
+     {
+      int longest = 0;
+      for(int i = 0; i < n; i++)
+         longest = (int)MathMax(longest, StringLen(txt[i]));
+      wmax = (int)(longest * size * 0.7) + 8;
+     }
+
+   return(wmax);
+  }
+
 //--- One row onto the end, or nothing if the panel is already full
 void PanelPush(string &txt[], color &clr[], int &n,
                const string text, const color col)
@@ -995,6 +1053,55 @@ void PanelAdd(const string title, const datetime anchor, const int fmt,
      }
   }
 
+//--- The rows the block has to cover. Held at module scope purely so PanelBox
+//--- can measure them without UpdatePanel having to thread the array through.
+string g_pTxt[KP_MAX_ROWS];
+int    g_pRows = 0;
+
+//+------------------------------------------------------------------+
+//| The solid block behind the rows.                                 |
+//|                                                                  |
+//| A rectangle label rather than a rectangle: this is screen        |
+//| furniture pinned to a corner, not something anchored to a price  |
+//| and a time that would slide away as the chart scrolls.           |
+//|                                                                  |
+//| Drawn in front of the candles, not behind them. BACK would put   |
+//| it under the price data, which is exactly the thing it is meant  |
+//| to hide. It stays under the ROWS because it is created first and |
+//| same-layer objects paint in creation order.                      |
+//+------------------------------------------------------------------+
+void PanelBox(const int n, const int top, const int size,
+              const int lineH)
+  {
+   string name = PO3_KPANEL + "BG";
+
+   if(!InpPanelBox || n <= 0)
+     {
+      ObjectDelete(0, name);
+      return;
+     }
+
+   int w = PanelWidth(g_pTxt, g_pRows, size);
+
+   ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+
+   ObjectSetInteger(0, name, OBJPROP_CORNER,      InpPanelCorner);
+   //--- The rows are laid out from InpPanelX and top, so the block starts one
+   //--- padding earlier on each axis and carries two of them in each size.
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE,   (int)MathMax(0, InpPanelX - KP_PAD));
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE,   (int)MathMax(0, top - KP_PAD));
+   ObjectSetInteger(0, name, OBJPROP_XSIZE,       w + 2 * KP_PAD);
+   ObjectSetInteger(0, name, OBJPROP_YSIZE,       n * lineH + 2 * KP_PAD);
+   ObjectSetInteger(0, name, OBJPROP_BGCOLOR,     InpPanelBg);
+   ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   ObjectSetInteger(0, name, OBJPROP_COLOR,       InpPanelBorder);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH,       1);
+   ObjectSetInteger(0, name, OBJPROP_BACK,        false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE,  false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTED,    false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN,      true);
+  }
+
 //+------------------------------------------------------------------+
 //| The count panel: a ladder of calendar periods, each counted in   |
 //| the candles that divide it.                                      |
@@ -1021,8 +1128,17 @@ void UpdatePanel()
    //--- again. m1 == 0 means M1 history is not there yet, which is not a state
    //--- worth latching, so it falls through and tries again.
    datetime m1 = iTime(_Symbol, PERIOD_M1, 0);
-   if(!g_pDirty && !g_pUnknown && m1 != 0 && m1 == g_pLast)
+   int      ch = (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS);
+
+   if(!g_pDirty && !g_pUnknown && m1 != 0 && m1 == g_pLast && ch == g_pHeight)
       return;
+
+   g_pHeight  = ch;
+
+   //--- A fresh load or an input change rebuilds the objects from scratch, so
+   //--- the block is created BEFORE the rows again. Same-layer objects paint in
+   //--- creation order, so a block created after them would cover them.
+   bool fresh = g_pDirty;
 
    g_pLast    = m1;
    g_pDirty   = false;
@@ -1084,6 +1200,11 @@ void UpdatePanel()
         }
      }
 
+   //--- Hand the built rows to PanelBox, which sizes the block to the widest
+   for(int i = 0; i < n; i++)
+      g_pTxt[i] = txt[i];
+   g_pRows = n;
+
    int size  = (int)MathMax(6, MathMin(20, InpPanelSize));
    int lineH = (int)(size * 1.9) + 2;
 
@@ -1091,6 +1212,18 @@ void UpdatePanel()
    //--- stack upwards and have to be laid out bottom first to read in order.
    bool up = (InpPanelCorner == CORNER_LEFT_LOWER ||
               InpPanelCorner == CORNER_RIGHT_LOWER);
+
+   //--- Centring works from whichever edge the corner names, so it lands in the
+   //--- middle from an upper or a lower corner alike. Clamped at the padding so
+   //--- a panel taller than the chart starts on screen rather than above it.
+   int top = InpPanelY;
+   if(InpPanelMiddle && ch > 0)
+      top = (int)MathMax(KP_PAD, (ch - n * lineH) / 2);
+
+   if(fresh)
+      ObjectsDeleteAll(0, PO3_KPANEL, -1, -1);
+
+   PanelBox(n, top, size, lineH);
 
    for(int r = 0; r < n; r++)
      {
@@ -1101,7 +1234,7 @@ void UpdatePanel()
 
       ObjectSetInteger(0, name, OBJPROP_CORNER,     InpPanelCorner);
       ObjectSetInteger(0, name, OBJPROP_XDISTANCE,  InpPanelX);
-      ObjectSetInteger(0, name, OBJPROP_YDISTANCE,  InpPanelY + slot * lineH);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE,  top + slot * lineH);
       ObjectSetInteger(0, name, OBJPROP_ANCHOR,     AnchorFor(InpPanelCorner));
       ObjectSetString (0, name, OBJPROP_TEXT,       txt[r]);
       //--- fixed pitch, or the columns will not line up between rows
