@@ -143,7 +143,7 @@ input ENUM_BASE_CORNER InpPanelCorner = CORNER_LEFT_UPPER;  // Corner
 input bool             InpPanelMiddle = true;               // Centre it vertically (ignores Y)
 input int              InpPanelX      = 12;                 // Distance from corner, X
 input int              InpPanelY      = 20;                 // Distance from corner, Y (when not centred)
-input int              InpPanelSize   = 7;                  // Text size
+input int              InpPanelSize   = 9;                  // Text size
 
 //--- A solid block behind the rows. Over candles, unbacked text is legible
 //--- only where the chart happens to be empty, which is not something you can

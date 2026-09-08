@@ -171,7 +171,7 @@ Open Pine Editor, paste `PO3_Gold_Levels.pine`, save, then Add to chart.
 | Corner (panel) | `CORNER_LEFT_UPPER` | Rows stack downward from an upper corner, upward from a lower one |
 | Centre it vertically | `true` | Worked out from chart height and row count; ignores Y |
 | Distance from corner, X / Y (panel) | `12` / `20` | Y applies only when *Centre it vertically* is off |
-| Text size (panel) | `7` | Clamped to 6–20 |
+| Text size (panel) | `9` | Clamped to 6–20 |
 | Solid block behind the panel | `true` | Sized to the widest row, drawn in front of the candles |
 | Block colour | `C'18,18,24'` | |
 | Block border colour | `clrDimGray` | |
