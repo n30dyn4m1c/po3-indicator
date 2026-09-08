@@ -35,16 +35,35 @@
 //|  higher the power, stronger the level". Gold at 4374 divides by  |
 //|  every number from 3 to 2187, so it is labelled 2187.            |
 //|                                                                  |
+//|  It also counts candles from the market open and marks the kihon |
+//|  suchi numbers on that count - time levels the way the grid is   |
+//|  price levels. The numbers, and why each one is what it is, live |
+//|  in PO3_Kihon.mqh. The panel counts the same open on H1, M30,    |
+//|  M15, M5 and M1 at once, so the timeframes can be read against   |
+//|  each other. Nothing here acts on those numbers; they mark where |
+//|  a turn is due, not that one is happening.                       |
+//|                                                                  |
 //|  Verified against the PO3 workbook's Gold sheet, 14 Mar 2025:    |
 //|    2187  around 2900 -> 2799.36 .. 3083.67   (row 35, x128..141) |
 //|    6561  around 2950 -> 2755.62 .. 3149.28   (row 39, x42..48)   |
 //|   19683  around 2950 -> 2755.62 .. 3149.28   (row 40, x14..16)   |
 //+------------------------------------------------------------------+
 #property copyright "PO3 Levels"
-#property version   "1.32"
+#property version   "1.34"
+//--- Shown in the Navigator and in the properties dialog. The indicator does
+//--- two things now, and a name that says only "PO3 Levels" undersells half of
+//--- it to anyone reading the list.
+#property description "Power of Three support and resistance levels on gold, by checkbox from 3 to 19683."
+#property description "Also counts candles from the year, month, week and day opens and marks the"
+#property description "Ichimoku kihon suchi numbers on that count. Draws only - places no orders."
 #property indicator_chart_window
 #property indicator_buffers 0
 #property indicator_plots   0
+
+//--- Quoted, not angled: MetaEditor resolves this against the folder holding
+//--- this file, so PO3_Kihon.mqh sits beside the indicator and there is no
+//--- separate Include folder step to forget.
+#include "PO3_Kihon.mqh"
 
 input group "Grid";
 input double InpScale     = 1.0;   // Scale divisor (1 = whole numbers, 100 = workbook 2dp)
@@ -84,6 +103,65 @@ input color            InpSessionColor   = clrSilver;            // Text colour
 input int              InpSessionLimitMin = 0;                   // Minutes on chart before it turns red (0 = off)
 input color            InpSessionOverColor = clrTomato;          // Text colour once over the limit
 
+input group "Candle count";
+//--- Ichimoku's counting rule, not a zero-based index: the candle the count
+//--- starts on is candle 1, so a 26 count spans 26 candles inclusive. That is
+//--- what makes the compound numbers overlap by one. See PO3_Kihon.mqh.
+//---
+//--- The anchor set here feeds both the on-chart marks and the panel, so the
+//--- two can never disagree about where the count started. Each has its own
+//--- show/hide switch below.
+input bool              InpShowCount   = true;              // Draw the count on the chart
+input ENUM_KIHON_ANCHOR InpCountAnchor = KIHON_ANCHOR_DAY;  // Count from
+input int               InpAnchorHour  = 8;                 // Custom anchor, hour (server)
+input int               InpAnchorMin   = 0;                 // Custom anchor, minute (server)
+input bool              InpMarkOpen    = true;              // Line on the candle the count starts at
+input color             InpOpenColor   = clrDimGray;        // Open line colour
+
+input group "Kihon suchi";
+//--- The numbers are time levels the way the PO3 grid is price levels. Marked
+//--- on the chart timeframe only; the panel below carries the rest.
+input bool  InpMarkKihon     = true;             // Mark the kihon suchi candles
+input bool  InpKihonCompound = true;             // Include the compound numbers (33 and up)
+input bool  InpKihonLines    = true;             // Vertical line on each marked candle
+input color InpKihonSimple   = clrDeepSkyBlue;   // 9, 17, 26      - colour
+input color InpKihonComp     = clrMediumOrchid;  // 33 and up      - colour
+input int   InpKihonSize     = 8;                // Marker text size
+input int   InpKihonGapPts   = 0;                // Marker offset from the candle low, in points
+input bool  InpNumberAll     = false;            // Number every candle, not just the kihon ones
+
+input group "Candle count panel";
+//--- A ladder of calendar periods, each counted in the candles that divide it:
+//--- the year in months, weeks and days, the month in days, H4s and H1s, the
+//--- week in H4s and H1s, the day in H1 down to M1. Every block carries its own
+//--- anchor. What you read for is agreement - one row on a kihon number is a
+//--- small turn due, several blocks landing together is a bigger one.
+input bool             InpShowPanel   = true;               // Show the count panel
+input bool             InpShowYear    = true;               // Year block    - MN1, W1, D1
+input bool             InpShowMonth   = true;               // Month block   - D1, H4, H1
+input bool             InpShowWeek    = true;               // Week block    - H4, H1, M30
+input bool             InpShowDay     = true;               // Day block     - H1 to M1
+//--- Mid left. The vertical centre is worked out from the chart height and the
+//--- number of rows rather than set as a fixed Y, because both change - the day
+//--- block grows and shrinks with the chart period, and a Y that centred a
+//--- 19-row panel would sit low on a 13-row one.
+input ENUM_BASE_CORNER InpPanelCorner = CORNER_LEFT_UPPER;  // Corner
+input bool             InpPanelMiddle = true;               // Centre it vertically (ignores Y)
+input int              InpPanelX      = 12;                 // Distance from corner, X
+input int              InpPanelY      = 20;                 // Distance from corner, Y (when not centred)
+input int              InpPanelSize   = 9;                  // Text size
+
+//--- A solid block behind the rows. Over candles, unbacked text is legible
+//--- only where the chart happens to be empty, which is not something you can
+//--- rely on while reading a count.
+input bool             InpPanelBox    = true;               // Solid block behind the panel
+input color            InpPanelBg     = C'18,18,24';        // Block colour
+input color            InpPanelBorder = clrDimGray;         // Block border colour
+input color            InpPanelColor  = clrSilver;          // Text colour
+input color            InpPanelHit    = clrLime;            // Colour of a row standing ON a kihon number
+input color            InpPanelNear   = clrOrange;          // Colour of a row within reach of one
+input int              InpPanelNearTol = 2;                 // How many candles either side counts as near
+
 input group "PO3 levels to show";
 //--- Every grid is on by default: the model is the whole nest of powers, and a
 //--- level's strength is meant to be read from how many grids agree on it, which
@@ -113,6 +191,11 @@ input color InpCol_19683 = clrCrimson;         // 19683  - colour
 //--- take them alone. The countdown is an OBJ_TEXT too, and a sweep by type
 //--- over the whole prefix would delete it on every rebuild.
 #define PO3_LEVEL   "PO3_L"
+//--- Markers are swept and redrawn as a block whenever the count moves; the
+//--- panel rows are rewritten in place. Separate sub-prefixes so the marker
+//--- sweep cannot take the panel with it.
+#define PO3_KMARK   "PO3_KM"
+#define PO3_KPANEL  "PO3_KP"
 #define PO3_COUNT   9
 
 //--- resolved table, built in OnInit, ascending by PO3 number
@@ -136,6 +219,31 @@ bool     g_logged   = false;
 //--- input change triggers. On such a change OnDeinit leaves g_gvCarry set and
 //--- the next OnInit adopts the stored start instead of restarting. g_gvAlerted
 //--- flags that the over-limit alert has already fired for this session.
+//--- Candle count. Markers only move when a candle closes or the anchor rolls
+//--- over, so they are rebuilt on a change rather than on every timer tick.
+datetime g_kAnchor = 0;
+int      g_kCount  = 0;
+bool     g_kDirty  = true;
+
+//--- Panel gate. Nothing the panel prints can change except on a minute
+//--- boundary: M1 is the finest thing counted and every coarser timeframe's
+//--- boundary is minute-aligned, as are the day, week, month and year rollovers
+//--- in the block titles. So the whole panel is rebuilt once a minute rather
+//--- than on every tick, which is what it was doing.
+//---
+//--- g_pUnknown holds the gate open while any row still reads "no data". A
+//--- row resolves when its history finishes loading, which does NOT happen on
+//--- a minute boundary, so latching on the clock alone would leave the panel
+//--- showing "no data" until the next minute arrived. Its own dirty flag, not
+//--- g_kDirty: UpdateCount clears that one before UpdatePanel ever sees it.
+datetime g_pLast    = 0;
+bool     g_pUnknown = true;
+bool     g_pDirty   = true;
+//--- A centred panel has to move when the window does, and a resize is not a
+//--- minute boundary. ChartGetInteger is a local read, so checking it every
+//--- pass costs nothing next to the rebuild it usually prevents.
+int      g_pHeight  = 0;
+
 string   g_gvStart      = "";
 string   g_gvCarry      = "";
 string   g_gvAlerted    = "";
@@ -172,16 +280,16 @@ void AddPO3(const bool on, const int po3, const color col)
   }
 
 //+------------------------------------------------------------------+
-//| Start, or adopt, the session timer.                               |
+//| Start, or adopt, the session timer.                              |
 //|                                                                  |
-//| MT5 tears the indicator down and rebuilds it on a timeframe or    |
-//| input change, so a start time held in a plain variable would      |
-//| reset every time the chart period was switched. It lives in a     |
-//| terminal global instead, keyed by chart id. OnDeinit sets the     |
-//| carry flag for exactly the reasons that should not reset the      |
-//| count, so its presence here means "adopt the stored start". A     |
-//| crash never runs OnDeinit, so the flag is absent and the count    |
-//| starts clean, which is what you want after a crash anyway.        |
+//| MT5 tears the indicator down and rebuilds it on a timeframe or   |
+//| input change, so a start time held in a plain variable would     |
+//| reset every time the chart period was switched. It lives in a    |
+//| terminal global instead, keyed by chart id. OnDeinit sets the    |
+//| carry flag for exactly the reasons that should not reset the     |
+//| count, so its presence here means "adopt the stored start". A    |
+//| crash never runs OnDeinit, so the flag is absent and the count   |
+//| starts clean, which is what you want after a crash anyway.       |
 //+------------------------------------------------------------------+
 void SessionInit()
   {
@@ -213,6 +321,29 @@ int OnInit()
 
    SessionInit();
 
+   //--- Before the early return below, so a chart with no grid ticked still
+   //--- gets its candle count rebuilt on an input change.
+   g_kAnchor  = 0;
+   g_kCount   = 0;
+   g_kDirty   = true;
+   g_pLast    = 0;
+   g_pUnknown = true;
+   g_pDirty   = true;
+   g_pHeight  = 0;
+
+   //--- The sizes actually in force, printed every load. MT5 stores inputs per
+   //--- applied indicator, not per source file, so a chart carries whatever it
+   //--- was given when it was added and a recompile does not update it. A
+   //--- timeframe change reloads from that store, which is when a stale size
+   //--- becomes visible. Printing it turns "it went small again" into a fact
+   //--- you can check in the Experts tab against the defaults you expect.
+   PrintFormat("PO3 Levels: panel text size %d, marker %d, level label %d. "
+               "These come from this chart's stored inputs - if they are not "
+               "the ones you expect, remove the indicator and re-add it.",
+               (int)MathMax(6, MathMin(20, InpPanelSize)),
+               (int)MathMax(5, MathMin(20, InpKihonSize)),
+               (int)MathMax(5, MathMin(20, InpFontSize)));
+
    g_n = 0;                                  // ascending, so g_po3[0] is finest
    AddPO3(InpUse_3,     3,     InpCol_3);
    AddPO3(InpUse_9,     9,     InpCol_9);
@@ -227,7 +358,10 @@ int OnInit()
    if(g_n == 0)
      {
       Print("PO3 Levels: no PO3 number ticked, no levels will be drawn.");
-      IndicatorSetString(INDICATOR_SHORTNAME, "PO3 (none ticked)");
+      //--- No grid, but the counts may still be the reason it is on the chart
+      IndicatorSetString(INDICATOR_SHORTNAME,
+                         (InpShowCount || InpShowPanel) ? "Kihon count"
+                                                        : "PO3 (none ticked)");
       g_dirty = true;
       EventSetTimer(1);          // the countdown is independent of the levels
       return(INIT_SUCCEEDED);
@@ -252,7 +386,8 @@ int OnInit()
                   i + 1, g_n, g_po3[i],
                   PriceText((double)g_po3[i] / InpScale), g_each);
      }
-   IndicatorSetString(INDICATOR_SHORTNAME, "PO3 " + names);
+   IndicatorSetString(INDICATOR_SHORTNAME, "PO3 " + names +
+                      ((InpShowCount || InpShowPanel) ? " + kihon" : ""));
 
    g_anchor   = LONG_MIN;
    g_lastTime = 0;
@@ -427,11 +562,17 @@ void Rebuild(const double price, const datetime labelTime)
   }
 
 //+------------------------------------------------------------------+
-//| The chart's timeframe, "M15" rather than "PERIOD_M15".           |
+//| A timeframe's short name, "M15" rather than "PERIOD_M15".        |
 //+------------------------------------------------------------------+
+string TfNameOf(const ENUM_TIMEFRAMES tf)
+  {
+   return(StringSubstr(EnumToString(tf), 7));
+  }
+
+//--- the chart's own timeframe
 string TfName()
   {
-   return(StringSubstr(EnumToString((ENUM_TIMEFRAMES)_Period), 7));
+   return(TfNameOf((ENUM_TIMEFRAMES)_Period));
   }
 
 //+------------------------------------------------------------------+
@@ -568,6 +709,593 @@ void UpdateSession()
   }
 
 //+------------------------------------------------------------------+
+//| The candle count, and the kihon suchi numbers marked on it.      |
+//|                                                                  |
+//| Counting is inclusive at both ends, which is the Ichimoku rule   |
+//| and the reason the compound numbers overlap by one candle: the   |
+//| candle sitting at the anchor is candle 1, so the developing      |
+//| candle is (shift of the anchor) + 1. PO3_Kihon.mqh has the       |
+//| numbers themselves and where each one comes from.                |
+//+------------------------------------------------------------------+
+
+//--- The panel is a ladder of calendar periods, each counted in the candles
+//--- that divide it sensibly: months, weeks and days make up a year; days and
+//--- H4s and H1s make up a month; H4s, H1s and M30s make up a week; and H1
+//--- down to M5 makes up a day. Every block carries its OWN anchor, which is
+//--- the whole point - a week count from the day open would read 1 forever.
+//--- The lists are fixed rather than inputs so no block can be pointed at a
+//--- period its timeframe does not divide.
+//---
+//--- M30 is on the week rather than anywhere else because that is where it
+//--- fits: a trading week is 240 M30 candles, so the count runs through eleven
+//--- of the twelve numbers and stops just short of 257 without ever running
+//--- off the end of the list. It is the closest fit in the whole panel.
+//---
+//--- The year, month and week blocks are FIXED. They are the same counts
+//--- whatever period the chart is on, so switching timeframe must not change
+//--- what they say - a week is 26 H1 candles in whether you are looking at M1
+//--- or D1, and a row that came and went with the chart period could not be
+//--- read across a timeframe change.
+//---
+//--- The day block is the opposite: it runs from H1 down to the CHART's own
+//--- period and stops there, because detail finer than the candles in front of
+//--- you is a count of something you cannot see. See KihonDayList.
+//---
+//--- M1 is missing from that ladder on purpose, on every chart period. The M1
+//--- row is ALWAYS the nested one, which restarts at each kihon suchi H1 candle
+//--- rather than running the whole day - see the nested row in UpdatePanel. A
+//--- plain M1 row beside it would read "past 257" from mid-morning on and say
+//--- nothing for the rest of the session.
+const ENUM_TIMEFRAMES g_kpYear[3]  = { PERIOD_MN1, PERIOD_W1,  PERIOD_D1 };
+const ENUM_TIMEFRAMES g_kpMonth[3] = { PERIOD_D1,  PERIOD_H4,  PERIOD_H1 };
+const ENUM_TIMEFRAMES g_kpWeek[3]  = { PERIOD_H4,  PERIOD_H1,  PERIOD_M30 };
+const ENUM_TIMEFRAMES g_kpDay[4]   = { PERIOD_H1,  PERIOD_M30, PERIOD_M15,
+                                       PERIOD_M5 };
+
+//--- Four blocks, their titles and the blank lines between them. Rows are
+//--- built into a fixed array and the unused tail deleted, so switching a
+//--- block off cannot leave an orphaned row behind on the chart.
+#define KP_MAX_ROWS   24
+
+//--- Ceiling on plain candle numbers. A whole day of M1 is 1440 labels, which
+//--- is both unreadable and a real drag on redraw, so only the most recent run
+//--- is numbered. The kihon markers are never capped - there are at most twelve
+//--- of them, and they are the ones worth seeing at the left edge.
+#define KP_LABEL_CAP  300
+
+//+------------------------------------------------------------------+
+//| One marked candle: an optional vertical line through it and its  |
+//| number printed under the low.                                    |
+//|                                                                  |
+//| Anchored to the candle's own time, so the marks stay on their    |
+//| candles as the chart scrolls, and to that candle's low, so the   |
+//| numbers sit clear of the body rather than across it.             |
+//+------------------------------------------------------------------+
+void DrawCountMark(const string id, const int shift, const string text,
+                   const color col, const bool line, const int size)
+  {
+   if(shift < 0 || shift >= Bars(_Symbol, _Period))
+      return;                                   // off the loaded history
+
+   datetime when = iTime(_Symbol, _Period, shift);
+   double   low  = iLow (_Symbol, _Period, shift);
+   if(when == 0 || low <= 0.0)
+      return;
+
+   if(line)
+     {
+      string vname = PO3_KMARK + "V" + id;
+
+      ObjectCreate(0, vname, OBJ_VLINE, 0, when, 0);
+
+      ObjectSetInteger(0, vname, OBJPROP_TIME,       when);
+      ObjectSetInteger(0, vname, OBJPROP_COLOR,      col);
+      ObjectSetInteger(0, vname, OBJPROP_STYLE,      STYLE_DOT);
+      ObjectSetInteger(0, vname, OBJPROP_WIDTH,      1);
+      //--- behind the candles: a time marker that hides the candle it marks
+      //--- has defeated itself
+      ObjectSetInteger(0, vname, OBJPROP_BACK,       true);
+      ObjectSetInteger(0, vname, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, vname, OBJPROP_SELECTED,   false);
+      ObjectSetInteger(0, vname, OBJPROP_HIDDEN,     true);
+      ObjectSetString (0, vname, OBJPROP_TOOLTIP,
+                       StringFormat("candle %s   %s", text,
+                                    TimeToString(when, TIME_DATE | TIME_MINUTES)));
+     }
+
+   string tname = PO3_KMARK + "T" + id;
+
+   ObjectCreate(0, tname, OBJ_TEXT, 0, when, low);
+
+   ObjectSetInteger(0, tname, OBJPROP_TIME,       when);
+   ObjectSetDouble (0, tname, OBJPROP_PRICE,      low - InpKihonGapPts * _Point);
+   ObjectSetString (0, tname, OBJPROP_TEXT,       text);
+   ObjectSetInteger(0, tname, OBJPROP_COLOR,      col);
+   ObjectSetInteger(0, tname, OBJPROP_FONTSIZE,   size);
+   //--- upper anchor hangs the number below the low, clear of the wick
+   ObjectSetInteger(0, tname, OBJPROP_ANCHOR,     ANCHOR_UPPER);
+   ObjectSetInteger(0, tname, OBJPROP_BACK,       false);
+   ObjectSetInteger(0, tname, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, tname, OBJPROP_SELECTED,   false);
+   ObjectSetInteger(0, tname, OBJPROP_HIDDEN,     true);
+  }
+
+//+------------------------------------------------------------------+
+//| Rebuild the on-chart marks, but only when they would move.       |
+//|                                                                  |
+//| The count changes exactly when a candle closes or the anchor     |
+//| rolls into a new day, so a sweep-and-redraw on every timer tick  |
+//| would rebuild an identical set of objects once a second and      |
+//| flicker while doing it.                                          |
+//+------------------------------------------------------------------+
+void UpdateCount()
+  {
+   datetime anchor = InpShowCount
+                     ? KihonAnchor(_Symbol, InpCountAnchor, InpAnchorHour, InpAnchorMin)
+                     : 0;
+   int count = InpShowCount ? KihonCount(_Symbol, _Period, anchor) : 0;
+
+   if(!g_kDirty && anchor == g_kAnchor && count == g_kCount)
+      return;
+
+   g_kAnchor = anchor;
+   g_kCount  = count;
+   g_kDirty  = false;
+
+   ObjectsDeleteAll(0, PO3_KMARK, -1, -1);
+
+   if(count <= 0)
+     {
+      ChartRedraw();
+      return;
+     }
+
+   int size   = (int)MathMax(5, MathMin(20, InpKihonSize));
+   int aShift = count - 1;                      // candle 1 lives here
+
+   if(InpMarkOpen)
+      DrawCountMark("OPEN", aShift, "1", InpOpenColor, true, size);
+
+   if(InpMarkKihon)
+      for(int i = 0; i < KIHON_COUNT; i++)
+        {
+         if(!InpKihonCompound && i >= KIHON_SIMPLE)
+            break;
+
+         int k = KihonNumbers[i];
+         if(k > count)                          // not reached yet
+            break;
+
+         DrawCountMark("K" + IntegerToString(k), aShift - (k - 1),
+                       IntegerToString(k),
+                       (i < KIHON_SIMPLE) ? InpKihonSimple : InpKihonComp,
+                       InpKihonLines, size);
+        }
+
+   //--- Plain numbers on the rest. Drawn after the kihon marks and skipping
+   //--- them, so a kihon candle keeps its own colour instead of being
+   //--- overwritten by a neutral label of the same number.
+   if(InpNumberAll)
+     {
+      int first = (count > KP_LABEL_CAP) ? count - KP_LABEL_CAP + 1 : 1;
+
+      for(int k = first; k <= count; k++)
+        {
+         if(k == 1 && InpMarkOpen)
+            continue;
+         if(InpMarkKihon && KihonIs(k, InpKihonCompound))
+            continue;
+
+         DrawCountMark("N" + IntegerToString(k), aShift - (k - 1),
+                       IntegerToString(k), InpPanelColor, false,
+                       (int)MathMax(5, size - 1));
+        }
+     }
+
+   ChartRedraw();
+  }
+
+//+------------------------------------------------------------------+
+//| One panel row: a timeframe's count against its block's anchor,   |
+//| and what it owes the next kihon suchi number.                    |
+//|                                                                  |
+//| "no data" and "too far" are different answers. The first means   |
+//| the history is not there to count; the second means the count    |
+//| was refused because the anchor is further back than              |
+//| KIHON_SPAN_CAP periods, where the exact figure would cost a      |
+//| large history load to say something "past 257" already says.     |
+//+------------------------------------------------------------------+
+string PanelRow(const ENUM_TIMEFRAMES tf, const datetime anchor, color &col,
+                const string label = "")
+  {
+   int    c = KihonCount(_Symbol, tf, anchor);
+   string tail;
+
+   if(c < 0)
+      tail = "too far";                        // refused, and it will stay refused
+   else
+      if(c == 0)
+        {
+         tail = "no data";
+         //--- History still arriving. Hold the panel's gate open so the row is
+         //--- rewritten the moment it resolves, rather than at the next minute.
+         g_pUnknown = true;
+        }
+      else
+        {
+         //--- Distance to the nearest number, either side. Zero is standing on
+         //--- one; within the tolerance is close enough to say so, and the sign
+         //--- says which way - "-2" is two candles short, "+2" two candles past.
+         int off = KihonOffset(c, InpKihonCompound);
+         int tol = (int)MathMax(0, MathMin(8, InpPanelNearTol));
+         int mag = (off < 0) ? -off : off;
+
+         if(off == 0)
+           {
+            tail = "KIHON";
+            col  = InpPanelHit;
+           }
+         else
+            if(mag <= tol)
+              {
+               //--- Sign written by hand rather than with %+d, so the text
+               //--- cannot depend on how the format handles a signed zero or
+               //--- a locale. off is non-zero here by the branch above.
+               tail = "KIHON " + ((off > 0) ? "+" : "-") + IntegerToString(mag);
+               col  = InpPanelNear;
+              }
+            else
+              {
+               //--- Past the last number there is nothing left to count to, so
+               //--- say that rather than print a countdown to nowhere. The last
+               //--- number is the last of the ACTIVE list: with the compounds
+               //--- switched off the series ends at 26, not at 257.
+               int last = (InpKihonCompound ? KIHON_COUNT : KIHON_SIMPLE) - 1;
+               int nx   = KihonNext(c, InpKihonCompound);
+               tail = (nx == 0)
+                      ? "past " + IntegerToString(KihonNumbers[last])
+                      : StringFormat("%d in %d", nx, nx - c);
+              }
+        }
+
+   //--- The tail is padded to a fixed width so every row is the same length.
+   //--- From a right-hand corner the labels are right-anchored, and ragged
+   //--- rows would step the timeframe column in and out.
+   return(StringFormat("%s %-5s %5s  %-12s",
+                       (tf == (ENUM_TIMEFRAMES)_Period) ? ">" : " ",
+                       (label == "") ? TfNameOf(tf) : label,
+                       (c > 0) ? IntegerToString(c) : "-",
+                       tail));
+  }
+
+//+------------------------------------------------------------------+
+//| The intraday ladder for this chart: H1 down to the chart's own   |
+//| period, and no finer.                                            |
+//|                                                                  |
+//| Selected by period LENGTH rather than by position in the table,  |
+//| so a broker's non-standard period - M10, M20 - lands in the      |
+//| right place instead of falling through. H1 is always kept: on an |
+//| H4 or daily chart every intraday row would otherwise be finer    |
+//| than the chart and the block would come out empty, when the hour |
+//| count is exactly what you would still want from it there.        |
+//+------------------------------------------------------------------+
+int KihonDayList(ENUM_TIMEFRAMES &out[])
+  {
+   int chart = PeriodSeconds();
+   int n     = 0;
+
+   ArrayResize(out, ArraySize(g_kpDay));
+
+   for(int i = 0; i < ArraySize(g_kpDay); i++)
+      if(i == 0 || PeriodSeconds(g_kpDay[i]) >= chart)
+        {
+         out[n] = g_kpDay[i];
+         n++;
+        }
+
+   ArrayResize(out, n);
+   return(n);
+  }
+
+//--- Breathing room between the text and the edge of the block behind it
+#define KP_PAD  6
+
+//+------------------------------------------------------------------+
+//| Width of the widest row, in pixels.                              |
+//|                                                                  |
+//| Measured rather than estimated from the character count: the     |
+//| block has to fit whatever font MetaTrader actually resolved, and |
+//| a block cut short of its text is worse than no block at all.     |
+//| TextSetFont takes tenths of a point when the size is negative,   |
+//| which is what OBJPROP_FONTSIZE is quoted in.                     |
+//|                                                                  |
+//| The estimate is only a fallback for TextGetSize coming back      |
+//| empty, and it is deliberately generous - too wide is invisible,  |
+//| too narrow is not.                                               |
+//+------------------------------------------------------------------+
+int PanelWidth(const string &txt[], const int n, const int size)
+  {
+   int wmax = 0;
+
+   TextSetFont("Consolas", -size * 10, 0, 0);
+
+   //--- TextGetSize writes back through uint references, so the locals have to
+   //--- be uint - an int argument will not bind and does not compile.
+   for(int i = 0; i < n; i++)
+     {
+      uint w = 0, h = 0;
+      if(TextGetSize(txt[i], w, h) && (int)w > wmax)
+         wmax = (int)w;
+     }
+
+   if(wmax <= 0)
+     {
+      int longest = 0;
+      for(int i = 0; i < n; i++)
+         longest = (int)MathMax(longest, StringLen(txt[i]));
+      wmax = (int)(longest * size * 0.7) + 8;
+     }
+
+   return(wmax);
+  }
+
+//--- One row onto the end, or nothing if the panel is already full
+void PanelPush(string &txt[], color &clr[], int &n,
+               const string text, const color col)
+  {
+   if(n >= KP_MAX_ROWS)
+      return;
+
+   txt[n] = text;
+   clr[n] = col;
+   n++;
+  }
+
+//+------------------------------------------------------------------+
+//| Append one block - a blank line, a title, then its rows.         |
+//|                                                                  |
+//| The whole block is dropped rather than truncated when it will    |
+//| not fit, so the panel never shows a title with its rows missing. |
+//+------------------------------------------------------------------+
+void PanelAdd(const string title, const datetime anchor, const int fmt,
+              const ENUM_TIMEFRAMES &tfs[],
+              string &txt[], color &clr[], int &n)
+  {
+   int rows = ArraySize(tfs);
+   if(n + rows + 2 > KP_MAX_ROWS)
+      return;
+
+   //--- An empty row reserves a slot without drawing anything; the placement
+   //--- loop creates no object for it. See the note there.
+   if(n > 0)                                    // spacer between blocks only
+      PanelPush(txt, clr, n, "", InpPanelColor);
+
+   PanelPush(txt, clr, n,
+             (anchor > 0)
+             ? StringFormat("%-6s from %s", title, TimeToString(anchor, fmt))
+             : StringFormat("%-6s from -", title),
+             InpPanelColor);
+
+   for(int i = 0; i < rows; i++)
+     {
+      color col = InpPanelColor;
+      string row = PanelRow(tfs[i], anchor, col);
+      PanelPush(txt, clr, n, row, col);
+     }
+  }
+
+//--- The rows the block has to cover. Held at module scope purely so PanelBox
+//--- can measure them without UpdatePanel having to thread the array through.
+string g_pTxt[KP_MAX_ROWS];
+int    g_pRows = 0;
+
+//+------------------------------------------------------------------+
+//| The solid block behind the rows.                                 |
+//|                                                                  |
+//| A rectangle label rather than a rectangle: this is screen        |
+//| furniture pinned to a corner, not something anchored to a price  |
+//| and a time that would slide away as the chart scrolls.           |
+//|                                                                  |
+//| Drawn in front of the candles, not behind them. BACK would put   |
+//| it under the price data, which is exactly the thing it is meant  |
+//| to hide. It stays under the ROWS because it is created first and |
+//| same-layer objects paint in creation order.                      |
+//+------------------------------------------------------------------+
+void PanelBox(const int n, const int top, const int size,
+              const int lineH)
+  {
+   string name = PO3_KPANEL + "BG";
+
+   if(!InpPanelBox || n <= 0)
+     {
+      ObjectDelete(0, name);
+      return;
+     }
+
+   int w = PanelWidth(g_pTxt, g_pRows, size);
+
+   ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+
+   ObjectSetInteger(0, name, OBJPROP_CORNER,      InpPanelCorner);
+   //--- The rows are laid out from InpPanelX and top, so the block starts one
+   //--- padding earlier on each axis and carries two of them in each size.
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE,   (int)MathMax(0, InpPanelX - KP_PAD));
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE,   (int)MathMax(0, top - KP_PAD));
+   ObjectSetInteger(0, name, OBJPROP_XSIZE,       w + 2 * KP_PAD);
+   ObjectSetInteger(0, name, OBJPROP_YSIZE,       n * lineH + 2 * KP_PAD);
+   ObjectSetInteger(0, name, OBJPROP_BGCOLOR,     InpPanelBg);
+   ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   ObjectSetInteger(0, name, OBJPROP_COLOR,       InpPanelBorder);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH,       1);
+   ObjectSetInteger(0, name, OBJPROP_BACK,        false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE,  false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTED,    false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN,      true);
+  }
+
+//+------------------------------------------------------------------+
+//| The count panel: a ladder of calendar periods, each counted in   |
+//| the candles that divide it.                                      |
+//|                                                                  |
+//| Year in months, weeks and days; month in days, H4s and H1s; week |
+//| in H4s and H1s; day in H1 down to M1. Every block has its own    |
+//| anchor, so a row is always counting something its timeframe can  |
+//| actually fill - a week counted in H1 reads 26 on Wednesday       |
+//| morning, where a week counted from the day open would read 1.    |
+//|                                                                  |
+//| What you are reading for is agreement across the blocks. One row |
+//| on a kihon number is a small turn due; the day, the week and the |
+//| month all landing on one at the same candle is a bigger one.     |
+//|                                                                  |
+//| Rewritten in place rather than swept and rebuilt: the rows are   |
+//| fixed names, so setting their text costs nothing and there is no |
+//| window in which the panel is missing. Rows past the last one     |
+//| used are deleted, which is what clears a block switched off.     |
+//+------------------------------------------------------------------+
+void UpdatePanel()
+  {
+   //--- The gate. Every count in the panel steps on a minute boundary, so
+   //--- rebuilding between them writes the same 260-odd object properties over
+   //--- again. m1 == 0 means M1 history is not there yet, which is not a state
+   //--- worth latching, so it falls through and tries again.
+   datetime m1 = iTime(_Symbol, PERIOD_M1, 0);
+   int      ch = (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS);
+
+   if(!g_pDirty && !g_pUnknown && m1 != 0 && m1 == g_pLast && ch == g_pHeight)
+      return;
+
+   g_pHeight  = ch;
+
+   //--- A fresh load or an input change rebuilds the objects from scratch, so
+   //--- the block is created BEFORE the rows again. Same-layer objects paint in
+   //--- creation order, so a block created after them would cover them.
+   bool fresh = g_pDirty;
+
+   g_pLast    = m1;
+   g_pDirty   = false;
+   //--- Cleared before the rows are built; PanelRow sets it again for any row
+   //--- that could not be counted, which holds the gate open for the next pass.
+   g_pUnknown = false;
+
+   string txt[KP_MAX_ROWS];
+   color  clr[KP_MAX_ROWS];
+   int    n = 0;
+
+   if(InpShowPanel)
+     {
+      if(InpShowYear)
+         PanelAdd("Year", KihonPeriodOpen(true), TIME_DATE,
+                  g_kpYear, txt, clr, n);
+
+      if(InpShowMonth)
+         PanelAdd("Month", KihonPeriodOpen(false), TIME_DATE,
+                  g_kpMonth, txt, clr, n);
+
+      if(InpShowWeek)
+         PanelAdd("Week", iTime(_Symbol, PERIOD_W1, 0), TIME_DATE,
+                  g_kpWeek, txt, clr, n);
+
+      //--- The day block follows the chart's own anchor when that anchor is a
+      //--- custom session time, so the panel agrees with the marks drawn on the
+      //--- chart instead of quietly counting from a different open. Every other
+      //--- anchor mode belongs to one of the blocks above, so the day block
+      //--- stays on the day open.
+      if(InpShowDay)
+        {
+         bool     sess    = (InpCountAnchor == KIHON_ANCHOR_TIME);
+         datetime dayOpen = sess ? KihonAnchor(_Symbol, InpCountAnchor,
+                                               InpAnchorHour, InpAnchorMin)
+                                 : iTime(_Symbol, PERIOD_D1, 0);
+
+         ENUM_TIMEFRAMES day[];
+         KihonDayList(day);
+
+         PanelAdd(sess ? "Sess" : "Day", dayOpen, TIME_MINUTES,
+                  day, txt, clr, n);
+
+         //--- The nested M1 count. Running M1 across a whole day gives a number
+         //--- that is past 257 by breakfast and says nothing after that, so it
+         //--- restarts at every kihon suchi H1 candle instead - hour 1, then 9,
+         //--- then 17. The label carries the hour it restarted at, because the
+         //--- count on its own cannot tell you which phase of the day it is
+         //--- measuring. Its own row rather than a member of the day list: the
+         //--- rest of that block counts the day, this one counts the segment.
+         int      seg  = 0;
+         datetime from = KihonSegmentStart(_Symbol, PERIOD_H1, dayOpen,
+                                           InpKihonCompound, seg);
+         color    col  = InpPanelColor;
+         string   row  = PanelRow(PERIOD_M1, from, col,
+                                  "M1@" + ((seg > 0) ? IntegerToString(seg) : "-"));
+
+         PanelPush(txt, clr, n, row, col);
+        }
+     }
+
+   //--- Hand the built rows to PanelBox, which sizes the block to the widest
+   for(int i = 0; i < n; i++)
+      g_pTxt[i] = txt[i];
+   g_pRows = n;
+
+   int size  = (int)MathMax(6, MathMin(20, InpPanelSize));
+   int lineH = (int)(size * 1.9) + 2;
+
+   //--- Y grows away from the chosen corner, so from a lower corner the rows
+   //--- stack upwards and have to be laid out bottom first to read in order.
+   bool up = (InpPanelCorner == CORNER_LEFT_LOWER ||
+              InpPanelCorner == CORNER_RIGHT_LOWER);
+
+   //--- Centring works from whichever edge the corner names, so it lands in the
+   //--- middle from an upper or a lower corner alike. Clamped at the padding so
+   //--- a panel taller than the chart starts on screen rather than above it.
+   int top = InpPanelY;
+   if(InpPanelMiddle && ch > 0)
+      top = (int)MathMax(KP_PAD, (ch - n * lineH) / 2);
+
+   if(fresh)
+      ObjectsDeleteAll(0, PO3_KPANEL, -1, -1);
+
+   PanelBox(n, top, size, lineH);
+
+   for(int r = 0; r < n; r++)
+     {
+      string name = PO3_KPANEL + IntegerToString(r);
+      int    slot = up ? (n - 1 - r) : r;
+
+      //--- Spacers are layout, not content. A label with empty text is not an
+      //--- invisible label: MT5 falls back to its default caption and draws the
+      //--- word "Label", one per gap between blocks. The row still occupies its
+      //--- slot, so the gap and the block height are unchanged - there is just
+      //--- no object. Deleted rather than skipped, to clear any left behind by
+      //--- a build that did create them.
+      if(txt[r] == "")
+        {
+         ObjectDelete(0, name);
+         continue;
+        }
+
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+
+      ObjectSetInteger(0, name, OBJPROP_CORNER,     InpPanelCorner);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE,  InpPanelX);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE,  top + slot * lineH);
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR,     AnchorFor(InpPanelCorner));
+      ObjectSetString (0, name, OBJPROP_TEXT,       txt[r]);
+      //--- fixed pitch, or the columns will not line up between rows
+      ObjectSetString (0, name, OBJPROP_FONT,       "Consolas");
+      ObjectSetInteger(0, name, OBJPROP_COLOR,      clr[r]);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE,   size);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_SELECTED,   false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN,     true);
+     }
+
+   //--- Whatever the last layout left behind. Deleting only the tail means a
+   //--- steady panel is never torn down and rebuilt, so it does not flicker.
+   for(int r = n; r < KP_MAX_ROWS; r++)
+      ObjectDelete(0, PO3_KPANEL + IntegerToString(r));
+  }
+
+//+------------------------------------------------------------------+
 //| Redraw the levels if price has crossed a grid cell or a new bar  |
 //| opened. Shared by the tick and timer paths so a quiet market     |
 //| still rolls the levels onto the new bar.                         |
@@ -601,6 +1329,8 @@ void RefreshLevels()
 void OnTimer()
   {
    RefreshLevels();
+   UpdateCount();
+   UpdatePanel();
    UpdateClock();
    UpdateSession();
    ChartRedraw();
@@ -621,9 +1351,14 @@ int OnCalculate(const int rates_total,
    if(rates_total <= 0)
       return(rates_total);
 
+   //--- Deliberately NOT the panel or the session timer. Both are one-second
+   //--- displays driven by OnTimer, and a tick tells them nothing a second of
+   //--- wall clock does not - the panel's counts cannot move except on a minute
+   //--- boundary. Leaving them here had every tick rewrite them. The clock
+   //--- stays: it is anchored to price and rides it between seconds.
    RefreshLevels();
+   UpdateCount();
    UpdateClock();
-   UpdateSession();
 
    return(rates_total);
   }
