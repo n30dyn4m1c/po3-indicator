@@ -166,7 +166,7 @@ Open Pine Editor, paste `PO3_Gold_Levels.pine`, save, then Add to chart.
 | Show the count panel | `true` | |
 | Year block — MN1, W1, D1 | `true` | Months, weeks and trading days since 1 January |
 | Month block — D1, H4, H1 | `true` | Since the 1st |
-| Week block — H4, H1 | `true` | Since the week open |
+| Week block — H4, H1, M30 | `true` | Since the week open |
 | Day block — H1 to chart | `true` | Runs from H1 down to the chart's own period, plus the nested M1 row |
 | Corner (panel) | `CORNER_LEFT_UPPER` | Rows stack downward from an upper corner, upward from a lower one |
 | Centre it vertically | `true` | Worked out from chart height and row count; ignores Y |
@@ -297,6 +297,7 @@ Month  from 2026.09.01
 Week   from 2026.09.07
   H4        9  KIHON
   H1       35  KIHON +2
+  M30      69  76 in 7
 
 Day    from 00:00
   H1       11  KIHON +2
@@ -308,6 +309,11 @@ Day    from 00:00
 Every block carries **its own anchor** — a week counted from the day open would
 read 1 forever. `>` flags the chart's own timeframe, and blocks can be switched
 off individually.
+
+**M30 sits on the week** because that is where it fits. A trading week is 240
+M30 candles, so the count runs through eleven of the twelve numbers and stops
+just short of 257 — it never runs off the end of the list. It is the closest
+fit of any row in the panel; the week in H4 only reaches 30, using three.
 
 **Year, month and week are fixed.** They say the same thing whatever period the
 chart is on, which is what makes them readable across a timeframe change — a

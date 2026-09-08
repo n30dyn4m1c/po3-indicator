@@ -133,7 +133,7 @@ input group "Candle count panel";
 input bool             InpShowPanel   = true;               // Show the count panel
 input bool             InpShowYear    = true;               // Year block    - MN1, W1, D1
 input bool             InpShowMonth   = true;               // Month block   - D1, H4, H1
-input bool             InpShowWeek    = true;               // Week block    - H4, H1
+input bool             InpShowWeek    = true;               // Week block    - H4, H1, M30
 input bool             InpShowDay     = true;               // Day block     - H1 to M1
 //--- Mid left. The vertical centre is worked out from the chart height and the
 //--- number of rows rather than set as a fixed Y, because both change - the day
@@ -324,6 +324,19 @@ int OnInit()
    g_pUnknown = true;
    g_pDirty   = true;
    g_pHeight  = 0;
+
+   //--- The sizes actually in force, printed every load. MT5 stores inputs per
+   //--- applied indicator, not per source file, so a chart carries whatever it
+   //--- was given when it was added and a recompile does not update it. A
+   //--- timeframe change reloads from that store, which is when a stale size
+   //--- becomes visible. Printing it turns "it went small again" into a fact
+   //--- you can check in the Experts tab against the defaults you expect.
+   PrintFormat("PO3 Levels: panel text size %d, marker %d, level label %d. "
+               "These come from this chart's stored inputs - if they are not "
+               "the ones you expect, remove the indicator and re-add it.",
+               (int)MathMax(6, MathMin(20, InpPanelSize)),
+               (int)MathMax(5, MathMin(20, InpKihonSize)),
+               (int)MathMax(5, MathMin(20, InpFontSize)));
 
    g_n = 0;                                  // ascending, so g_po3[0] is finest
    AddPO3(InpUse_3,     3,     InpCol_3);
@@ -697,11 +710,16 @@ void UpdateSession()
 
 //--- The panel is a ladder of calendar periods, each counted in the candles
 //--- that divide it sensibly: months, weeks and days make up a year; days and
-//--- H4s and H1s make up a month; H4s and H1s make up a week; and H1 down to
-//--- M5 makes up a day. Every block carries its OWN anchor, which is the whole
-//--- point - a week count from the day open would read 1 forever. The lists
-//--- are fixed rather than inputs so no block can be pointed at a period its
-//--- timeframe does not divide.
+//--- H4s and H1s make up a month; H4s, H1s and M30s make up a week; and H1
+//--- down to M5 makes up a day. Every block carries its OWN anchor, which is
+//--- the whole point - a week count from the day open would read 1 forever.
+//--- The lists are fixed rather than inputs so no block can be pointed at a
+//--- period its timeframe does not divide.
+//---
+//--- M30 is on the week rather than anywhere else because that is where it
+//--- fits: a trading week is 240 M30 candles, so the count runs through eleven
+//--- of the twelve numbers and stops just short of 257 without ever running
+//--- off the end of the list. It is the closest fit in the whole panel.
 //---
 //--- The year, month and week blocks are FIXED. They are the same counts
 //--- whatever period the chart is on, so switching timeframe must not change
@@ -720,7 +738,7 @@ void UpdateSession()
 //--- nothing for the rest of the session.
 const ENUM_TIMEFRAMES g_kpYear[3]  = { PERIOD_MN1, PERIOD_W1,  PERIOD_D1 };
 const ENUM_TIMEFRAMES g_kpMonth[3] = { PERIOD_D1,  PERIOD_H4,  PERIOD_H1 };
-const ENUM_TIMEFRAMES g_kpWeek[2]  = { PERIOD_H4,  PERIOD_H1 };
+const ENUM_TIMEFRAMES g_kpWeek[3]  = { PERIOD_H4,  PERIOD_H1,  PERIOD_M30 };
 const ENUM_TIMEFRAMES g_kpDay[4]   = { PERIOD_H1,  PERIOD_M30, PERIOD_M15,
                                        PERIOD_M5 };
 
@@ -1037,6 +1055,8 @@ void PanelAdd(const string title, const datetime anchor, const int fmt,
    if(n + rows + 2 > KP_MAX_ROWS)
       return;
 
+   //--- An empty row reserves a slot without drawing anything; the placement
+   //--- loop creates no object for it. See the note there.
    if(n > 0)                                    // spacer between blocks only
       PanelPush(txt, clr, n, "", InpPanelColor);
 
@@ -1230,6 +1250,18 @@ void UpdatePanel()
      {
       string name = PO3_KPANEL + IntegerToString(r);
       int    slot = up ? (n - 1 - r) : r;
+
+      //--- Spacers are layout, not content. A label with empty text is not an
+      //--- invisible label: MT5 falls back to its default caption and draws the
+      //--- word "Label", one per gap between blocks. The row still occupies its
+      //--- slot, so the gap and the block height are unchanged - there is just
+      //--- no object. Deleted rather than skipped, to clear any left behind by
+      //--- a build that did create them.
+      if(txt[r] == "")
+        {
+         ObjectDelete(0, name);
+         continue;
+        }
 
       ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
 
