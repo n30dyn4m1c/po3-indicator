@@ -207,6 +207,21 @@ datetime g_kAnchor = 0;
 int      g_kCount  = 0;
 bool     g_kDirty  = true;
 
+//--- Panel gate. Nothing the panel prints can change except on a minute
+//--- boundary: M1 is the finest thing counted and every coarser timeframe's
+//--- boundary is minute-aligned, as are the day, week, month and year rollovers
+//--- in the block titles. So the whole panel is rebuilt once a minute rather
+//--- than on every tick, which is what it was doing.
+//---
+//--- g_pUnknown holds the gate open while any row still reads "no data". A
+//--- row resolves when its history finishes loading, which does NOT happen on
+//--- a minute boundary, so latching on the clock alone would leave the panel
+//--- showing "no data" until the next minute arrived. Its own dirty flag, not
+//--- g_kDirty: UpdateCount clears that one before UpdatePanel ever sees it.
+datetime g_pLast    = 0;
+bool     g_pUnknown = true;
+bool     g_pDirty   = true;
+
 string   g_gvStart      = "";
 string   g_gvCarry      = "";
 string   g_gvAlerted    = "";
@@ -286,9 +301,12 @@ int OnInit()
 
    //--- Before the early return below, so a chart with no grid ticked still
    //--- gets its candle count rebuilt on an input change.
-   g_kAnchor = 0;
-   g_kCount  = 0;
-   g_kDirty  = true;
+   g_kAnchor  = 0;
+   g_kCount   = 0;
+   g_kDirty   = true;
+   g_pLast    = 0;
+   g_pUnknown = true;
+   g_pDirty   = true;
 
    g_n = 0;                                  // ascending, so g_po3[0] is finest
    AddPO3(InpUse_3,     3,     InpCol_3);
@@ -849,10 +867,15 @@ string PanelRow(const ENUM_TIMEFRAMES tf, const datetime anchor, color &col,
    string tail;
 
    if(c < 0)
-      tail = "too far";
+      tail = "too far";                        // refused, and it will stay refused
    else
       if(c == 0)
+        {
          tail = "no data";
+         //--- History still arriving. Hold the panel's gate open so the row is
+         //--- rewritten the moment it resolves, rather than at the next minute.
+         g_pUnknown = true;
+        }
       else
         {
          //--- Distance to the nearest number, either side. Zero is standing on
@@ -993,6 +1016,20 @@ void PanelAdd(const string title, const datetime anchor, const int fmt,
 //+------------------------------------------------------------------+
 void UpdatePanel()
   {
+   //--- The gate. Every count in the panel steps on a minute boundary, so
+   //--- rebuilding between them writes the same 260-odd object properties over
+   //--- again. m1 == 0 means M1 history is not there yet, which is not a state
+   //--- worth latching, so it falls through and tries again.
+   datetime m1 = iTime(_Symbol, PERIOD_M1, 0);
+   if(!g_pDirty && !g_pUnknown && m1 != 0 && m1 == g_pLast)
+      return;
+
+   g_pLast    = m1;
+   g_pDirty   = false;
+   //--- Cleared before the rows are built; PanelRow sets it again for any row
+   //--- that could not be counted, which holds the gate open for the next pass.
+   g_pUnknown = false;
+
    string txt[KP_MAX_ROWS];
    color  clr[KP_MAX_ROWS];
    int    n = 0;
@@ -1138,11 +1175,14 @@ int OnCalculate(const int rates_total,
    if(rates_total <= 0)
       return(rates_total);
 
+   //--- Deliberately NOT the panel or the session timer. Both are one-second
+   //--- displays driven by OnTimer, and a tick tells them nothing a second of
+   //--- wall clock does not - the panel's counts cannot move except on a minute
+   //--- boundary. Leaving them here had every tick rewrite them. The clock
+   //--- stays: it is anchored to price and rides it between seconds.
    RefreshLevels();
    UpdateCount();
-   UpdatePanel();
    UpdateClock();
-   UpdateSession();
 
    return(rates_total);
   }
