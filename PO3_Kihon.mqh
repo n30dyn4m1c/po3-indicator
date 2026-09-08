@@ -16,7 +16,11 @@
 //|                                                                  |
 //|    9   ichi-moku, the span the Tenkan is built on                |
 //|    17  9 + 9 - 1                                                 |
-//|    26  17 + 9 - 1, the Kijun span and the cloud displacement     |
+//|    26  GIVEN, not derived. The Kijun span and the cloud          |
+//|        displacement, and historically a month of trading days    |
+//|        under the six-day week Japan kept when this was written.  |
+//|        It is the one number the overlap rule does not produce -  |
+//|        see the note below.                                       |
 //|                                                                  |
 //|  THE COMPOUND NUMBERS (fukugo kihon suchi)                       |
 //|                                                                  |
@@ -26,15 +30,24 @@
 //|    65   33 + 33 - 1        (four 17s chained)                    |
 //|    76   26 + 26 + 26 - 2   (also 51 + 26 - 1)                    |
 //|    129  65 + 65 - 1                                              |
-//|    172  65 + 65 + 42       (see the note below)                  |
+//|    172  65 + 42 + 42 + 26 - 3                                    |
 //|    226  76 + 76 + 76 - 2                                         |
 //|    257  129 + 129 - 1                                            |
 //|                                                                  |
-//|  172 is the one number in the classical list that does not fall  |
-//|  out of the overlap rule cleanly - the identity above is a plain |
-//|  sum, not a chain of shared candles. It is carried here because  |
-//|  it is in the traditional list, not because this file can        |
-//|  derive it. Treat it as the weakest member of the set.           |
+//|  26 is the exception, not 172. Every compound above chains       |
+//|  simple spans sharing a candle, so k spans subtract k-1. 26 does |
+//|  not come out that way: three 9s chained give 9+9+9-2 = 25, and  |
+//|  17+9-1 is 25 as well. Reaching 26 needs either a plain 9+17     |
+//|  with no shared candle or 9+9+9-1 with one overlap too few, and  |
+//|  neither is the rule. That is expected - 26 is one of the three  |
+//|  SIMPLE numbers, and a simple number is a given, not a result.   |
+//|  It is a calendar figure that the rule then builds on.           |
+//|                                                                  |
+//|  An earlier version of this file claimed 172 was the outlier and |
+//|  wrote it as the plain sum 65 + 65 + 42. That sum is right, but  |
+//|  172 chains perfectly well as 65 + 42 + 42 + 26 - 3: four spans, |
+//|  three shared candles. 172 obeys the rule. 26 is the one that    |
+//|  does not, and it is the one that never claimed to.              |
 //|                                                                  |
 //|  Above 257 the series keeps doubling - 257 + 257 - 1 = 513 - but |
 //|  a number that large has no meaning on an intraday chart, where  |

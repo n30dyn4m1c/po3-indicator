@@ -255,21 +255,24 @@ simple spans that **share their turning candle** — two 17s joined make 33, not
 |---|---|---|
 | **Simple** | 9 | *ichi-moku*, the Tenkan span |
 | | 17 | 9 + 9 − 1 |
-| | 26 | 17 + 9 − 1, the Kijun span and the cloud displacement |
+| | 26 | **Given, not derived** — the Kijun span, and a month of trading days under the old six-day week |
 | **Compound** | 33 | 17 + 17 − 1 |
 | | 42 | 26 + 17 − 1 |
 | | 51 | 26 + 26 − 1 |
 | | 65 | 33 + 33 − 1 (four 17s chained) |
 | | 76 | 26 + 26 + 26 − 2, also 51 + 26 − 1 |
 | | 129 | 65 + 65 − 1 |
-| | 172 | 65 + 65 + 42 — see below |
+| | 172 | 65 + 42 + 42 + 26 − 3 |
 | | 226 | 76 + 76 + 76 − 2 |
 | | 257 | 129 + 129 − 1 |
 
-**172 is the one number that does not fall out of the overlap rule cleanly.**
-The identity above is a plain sum, not a chain of shared candles. It is in the
-list because the classical list has it, not because this project can derive it.
-Treat it as the weakest member of the set.
+**26 is the exception, not 172.** Every compound chains simple spans that share
+a candle, so *k* spans subtract *k*−1. 26 does not come out that way: three 9s
+chained give 9+9+9−2 = **25**, and 17+9−1 is **25** as well. Reaching 26 needs
+either a plain 9+17 with no shared candle, or 9+9+9−1 with one overlap too few
+— and neither is the rule. That is expected: 26 is one of the three *simple*
+numbers, and a simple number is a given, not a result. It is a calendar figure
+the rule then builds on.
 
 The series keeps doubling past 257 — 257 + 257 − 1 = 513 — but a number that
 large has no use on an intraday chart, where even 257 M1 candles is only a
