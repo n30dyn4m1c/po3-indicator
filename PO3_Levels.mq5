@@ -43,13 +43,22 @@
 //|  each other. Nothing here acts on those numbers; they mark where |
 //|  a turn is due, not that one is happening.                       |
 //|                                                                  |
+//|  When an H4 or an H1 count lands ON a kihon number - a lime row  |
+//|  in that panel - the candle carrying the number is itself a      |
+//|  kihon candle, and a second block standing beside the panel      |
+//|  counts the candles inside it - M15, M5 and M1, as many of them  |
+//|  as can reach a kihon number in the time there is, and every one |
+//|  of them counted from that candle's own open. That gives the     |
+//|  hour a turn is due in a finer count to place it in, rather than |
+//|  leaving it as one bar.                                          |
+//|                                                                  |
 //|  Verified against the PO3 workbook's Gold sheet, 14 Mar 2025:    |
 //|    2187  around 2900 -> 2799.36 .. 3083.67   (row 35, x128..141) |
 //|    6561  around 2950 -> 2755.62 .. 3149.28   (row 39, x42..48)   |
 //|   19683  around 2950 -> 2755.62 .. 3149.28   (row 40, x14..16)   |
 //+------------------------------------------------------------------+
 #property copyright "PO3 Levels"
-#property version   "1.34"
+#property version   "1.35"
 //--- Shown in the Navigator and in the properties dialog. The indicator does
 //--- two things now, and a name that says only "PO3 Levels" undersells half of
 //--- it to anyone reading the list.
@@ -162,6 +171,35 @@ input color            InpPanelHit    = clrLime;            // Colour of a row s
 input color            InpPanelNear   = clrOrange;          // Colour of a row within reach of one
 input int              InpPanelNearTol = 2;                 // How many candles either side counts as near
 
+input group "Kihon segment panel";
+//--- The second block, standing beside the count panel, and the only place a
+//--- count is nested inside a candle rather than run across a calendar period.
+//--- When the H4 or H1 count stands ON a kihon number, the candle carrying that
+//--- number is a kihon candle, so the minutes inside it are worth counting in
+//--- their own right: M15, M5 and M1 from that candle's open, marked against
+//--- the numbers the same way every other row is. Only the rows that can reach
+//--- a number appear, which is why an H4 gets M15 and an H1 does not.
+//---
+//--- Every figure in the block is measured from the candle it heads, and none
+//--- from a day, week or month open. The calendar anchors decide whether the
+//--- block opens and take no further part: inside it the question is only how
+//--- far into THIS H4, or THIS H1, the market has come. The counts against the
+//--- calendar are the panel beside it, which carries them in full.
+//---
+//--- It sits BESIDE the count panel rather than in a corner of its own: same
+//--- corner, same top edge, one gap further along, in its own block. So it has
+//--- no position inputs - it follows the panel above wherever that is put, and
+//--- the only thing to set is how far apart the two blocks stand. Its X comes
+//--- from the MEASURED width of the count panel, so the two cannot overlap
+//--- whatever the rows happen to say.
+//---
+//--- Colours and text size come from the panel group above too, so the two read
+//--- as one instrument in two blocks.
+input bool  InpShowSeg = true;   // Show the kihon segment panel
+input bool  InpSegH4   = true;   // Segments inside a kihon H4 candle
+input bool  InpSegH1   = true;   // Segments inside a kihon H1 candle
+input int   InpSegGap  = 8;      // Gap between the two blocks, in pixels
+
 input group "PO3 levels to show";
 //--- Every grid is on by default: the model is the whole nest of powers, and a
 //--- level's strength is meant to be read from how many grids agree on it, which
@@ -196,6 +234,10 @@ input color InpCol_19683 = clrCrimson;         // 19683  - colour
 //--- sweep cannot take the panel with it.
 #define PO3_KMARK   "PO3_KM"
 #define PO3_KPANEL  "PO3_KP"
+//--- Its own prefix, not a suffix on the panel's: the two are swept
+//--- independently, and "PO3_KP" as a prefix would take the segment panel with
+//--- the main one every time the main one was rebuilt from scratch.
+#define PO3_KSEG    "PO3_KS"
 #define PO3_COUNT   9
 
 //--- resolved table, built in OnInit, ascending by PO3 number
@@ -360,8 +402,8 @@ int OnInit()
       Print("PO3 Levels: no PO3 number ticked, no levels will be drawn.");
       //--- No grid, but the counts may still be the reason it is on the chart
       IndicatorSetString(INDICATOR_SHORTNAME,
-                         (InpShowCount || InpShowPanel) ? "Kihon count"
-                                                        : "PO3 (none ticked)");
+                         (InpShowCount || InpShowPanel || InpShowSeg)
+                         ? "Kihon count" : "PO3 (none ticked)");
       g_dirty = true;
       EventSetTimer(1);          // the countdown is independent of the levels
       return(INIT_SUCCEEDED);
@@ -387,7 +429,8 @@ int OnInit()
                   PriceText((double)g_po3[i] / InpScale), g_each);
      }
    IndicatorSetString(INDICATOR_SHORTNAME, "PO3 " + names +
-                      ((InpShowCount || InpShowPanel) ? " + kihon" : ""));
+                      ((InpShowCount || InpShowPanel || InpShowSeg)
+                       ? " + kihon" : ""));
 
    g_anchor   = LONG_MIN;
    g_lastTime = 0;
@@ -932,7 +975,10 @@ string PanelRow(const ENUM_TIMEFRAMES tf, const datetime anchor, color &col,
 
          if(off == 0)
            {
-            tail = "KIHON";
+            //--- "KS" rather than the whole word. It is the only thing in the
+            //--- row that repeats, and shouting it in a column of counts made
+            //--- the numbers - which are the reading - the quieter half.
+            tail = "KS";
             col  = InpPanelHit;
            }
          else
@@ -941,7 +987,7 @@ string PanelRow(const ENUM_TIMEFRAMES tf, const datetime anchor, color &col,
                //--- Sign written by hand rather than with %+d, so the text
                //--- cannot depend on how the format handles a signed zero or
                //--- a locale. off is non-zero here by the branch above.
-               tail = "KIHON " + ((off > 0) ? "+" : "-") + IntegerToString(mag);
+               tail = "KS " + ((off > 0) ? "+" : "-") + IntegerToString(mag);
                col  = InpPanelNear;
               }
             else
@@ -961,7 +1007,12 @@ string PanelRow(const ENUM_TIMEFRAMES tf, const datetime anchor, color &col,
    //--- The tail is padded to a fixed width so every row is the same length.
    //--- From a right-hand corner the labels are right-anchored, and ragged
    //--- rows would step the timeframe column in and out.
-   return(StringFormat("%s %-5s %5s  %-12s",
+   //---
+   //--- Ten, which is one clear of the longest tail there is: "226 in 53", the
+   //--- widest gap between two kihon numbers written out. Padding is a minimum
+   //--- and never truncates, and the block is sized by measuring the rows, so
+   //--- an unexpectedly long tail would widen the block rather than be cut.
+   return(StringFormat("%s %-5s %5s  %-10s",
                        (tf == (ENUM_TIMEFRAMES)_Period) ? ">" : " ",
                        (label == "") ? TfNameOf(tf) : label,
                        (c > 0) ? IntegerToString(c) : "-",
@@ -999,6 +1050,13 @@ int KihonDayList(ENUM_TIMEFRAMES &out[])
 
 //--- Breathing room between the text and the edge of the block behind it
 #define KP_PAD  6
+
+//--- Row pitch. Both panels are laid out on it and the count panel's height
+//--- decides where both of them start, so it is worked out in one place.
+int PanelLineH(const int size)
+  {
+   return((int)(size * 1.9) + 2);
+  }
 
 //+------------------------------------------------------------------+
 //| Width of the widest row, in pixels.                              |
@@ -1084,11 +1142,6 @@ void PanelAdd(const string title, const datetime anchor, const int fmt,
      }
   }
 
-//--- The rows the block has to cover. Held at module scope purely so PanelBox
-//--- can measure them without UpdatePanel having to thread the array through.
-string g_pTxt[KP_MAX_ROWS];
-int    g_pRows = 0;
-
 //+------------------------------------------------------------------+
 //| The solid block behind the rows.                                 |
 //|                                                                  |
@@ -1101,10 +1154,11 @@ int    g_pRows = 0;
 //| to hide. It stays under the ROWS because it is created first and |
 //| same-layer objects paint in creation order.                      |
 //+------------------------------------------------------------------+
-void PanelBox(const int n, const int top, const int size,
-              const int lineH)
+void PanelBox(const string prefix, const ENUM_BASE_CORNER corner, const int x,
+              const string &txt[], const int n, const int top,
+              const int size, const int lineH)
   {
-   string name = PO3_KPANEL + "BG";
+   string name = prefix + "BG";
 
    if(!InpPanelBox || n <= 0)
      {
@@ -1112,14 +1166,14 @@ void PanelBox(const int n, const int top, const int size,
       return;
      }
 
-   int w = PanelWidth(g_pTxt, g_pRows, size);
+   int w = PanelWidth(txt, n, size);
 
    ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
 
-   ObjectSetInteger(0, name, OBJPROP_CORNER,      InpPanelCorner);
-   //--- The rows are laid out from InpPanelX and top, so the block starts one
-   //--- padding earlier on each axis and carries two of them in each size.
-   ObjectSetInteger(0, name, OBJPROP_XDISTANCE,   (int)MathMax(0, InpPanelX - KP_PAD));
+   ObjectSetInteger(0, name, OBJPROP_CORNER,      corner);
+   //--- The rows are laid out from x and top, so the block starts one padding
+   //--- earlier on each axis and carries two of them in each size.
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE,   (int)MathMax(0, x - KP_PAD));
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE,   (int)MathMax(0, top - KP_PAD));
    ObjectSetInteger(0, name, OBJPROP_XSIZE,       w + 2 * KP_PAD);
    ObjectSetInteger(0, name, OBJPROP_YSIZE,       n * lineH + 2 * KP_PAD);
@@ -1131,6 +1185,212 @@ void PanelBox(const int n, const int top, const int size,
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE,  false);
    ObjectSetInteger(0, name, OBJPROP_SELECTED,    false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN,      true);
+  }
+
+//+------------------------------------------------------------------+
+//| Put one panel on the chart: its block, its rows, and the tail of |
+//| the last layout that this one no longer uses.                    |
+//|                                                                  |
+//| Everything that differs between the two panels is an argument,   |
+//| so the count panel and the segment panel cannot drift into       |
+//| behaving differently - only into standing side by side.          |
+//|                                                                  |
+//| x and top are given rather than worked out here, because the two |
+//| blocks are placed against EACH OTHER: they share a top edge, and |
+//| the segment panel's x is the count panel's x plus the width the  |
+//| count panel measured. Only the caller knows both.                |
+//|                                                                  |
+//| Rewritten in place rather than swept and rebuilt: the rows are   |
+//| fixed names, so setting their text costs nothing and there is no |
+//| window in which the panel is missing. Rows past the last one     |
+//| used are deleted, which is what clears a block switched off.     |
+//+------------------------------------------------------------------+
+void PanelDraw(const string prefix, const ENUM_BASE_CORNER corner,
+               const int x, const int top,
+               const string &txt[], const color &clr[], const int n,
+               const int size, const bool fresh)
+  {
+   int lineH = PanelLineH(size);
+
+   //--- Y grows away from the chosen corner, so from a lower corner the rows
+   //--- stack upwards and have to be laid out bottom first to read in order.
+   bool up = (corner == CORNER_LEFT_LOWER || corner == CORNER_RIGHT_LOWER);
+
+   //--- A fresh load or an input change rebuilds the objects from scratch, so
+   //--- the block is created BEFORE the rows again. Same-layer objects paint in
+   //--- creation order, so a block created after them would cover them.
+   if(fresh)
+      ObjectsDeleteAll(0, prefix, -1, -1);
+
+   PanelBox(prefix, corner, x, txt, n, top, size, lineH);
+
+   for(int r = 0; r < n; r++)
+     {
+      string name = prefix + IntegerToString(r);
+      int    slot = up ? (n - 1 - r) : r;
+
+      //--- Spacers are layout, not content. A label with empty text is not an
+      //--- invisible label: MT5 falls back to its default caption and draws the
+      //--- word "Label", one per gap between blocks. The row still occupies its
+      //--- slot, so the gap and the block height are unchanged - there is just
+      //--- no object. Deleted rather than skipped, to clear any left behind by
+      //--- a build that did create them.
+      if(txt[r] == "")
+        {
+         ObjectDelete(0, name);
+         continue;
+        }
+
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+
+      ObjectSetInteger(0, name, OBJPROP_CORNER,     corner);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE,  x);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE,  top + slot * lineH);
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR,     AnchorFor(corner));
+      ObjectSetString (0, name, OBJPROP_TEXT,       txt[r]);
+      //--- fixed pitch, or the columns will not line up between rows
+      ObjectSetString (0, name, OBJPROP_FONT,       "Consolas");
+      ObjectSetInteger(0, name, OBJPROP_COLOR,      clr[r]);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE,   size);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_SELECTED,   false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN,     true);
+     }
+
+   //--- Whatever the last layout left behind. Deleting only the tail means a
+   //--- steady panel is never torn down and rebuilt, so it does not flicker.
+   for(int r = n; r < KP_MAX_ROWS; r++)
+      ObjectDelete(0, prefix + IntegerToString(r));
+  }
+
+//+------------------------------------------------------------------+
+//| The open the day block counts from.                              |
+//|                                                                  |
+//| The chart's own anchor when that anchor is a custom session      |
+//| time, so the panel agrees with the marks drawn on the chart      |
+//| instead of quietly counting from a different open; the plain day |
+//| open otherwise, since every other anchor mode belongs to one of  |
+//| the blocks above the day block.                                  |
+//+------------------------------------------------------------------+
+datetime PanelDayOpen(bool &sess)
+  {
+   sess = (InpCountAnchor == KIHON_ANCHOR_TIME);
+
+   return(sess ? KihonAnchor(_Symbol, InpCountAnchor, InpAnchorHour, InpAnchorMin)
+               : iTime(_Symbol, PERIOD_D1, 0));
+  }
+
+//+------------------------------------------------------------------+
+//| Is this timeframe's candle a kihon suchi candle right now.       |
+//|                                                                  |
+//| It can only be one relative to a count, and a count needs an     |
+//| anchor, so the calendar anchors are tried here - but that is the |
+//| whole of their part in this. They decide WHETHER the block opens |
+//| and nothing else: what it then counts starts at the candle, and  |
+//| the block never shows a figure measured from a day, week or      |
+//| month open. Those counts are the panel beside it, in full.       |
+//|                                                                  |
+//| Read from the anchors themselves rather than from that panel, so |
+//| this block says the same thing whether or not the row that would |
+//| have shown the hit is switched on. A count you have hidden is    |
+//| still a count.                                                   |
+//+------------------------------------------------------------------+
+bool SegIsKihon(const ENUM_TIMEFRAMES tf, const bool withDay)
+  {
+   //--- sess is not read: which open the day count started at changes whether
+   //--- this is a hit, not what the block then says about it.
+   bool     sess = false;
+   datetime day  = PanelDayOpen(sess);
+
+   datetime anch[3];
+
+   anch[0] = KihonPeriodOpen(false);
+   anch[1] = iTime(_Symbol, PERIOD_W1, 0);
+   anch[2] = day;
+
+   int n = withDay ? 3 : 2;
+
+   for(int i = 0; i < n; i++)
+     {
+      int c = KihonCount(_Symbol, tf, anch[i]);
+      //--- c can be 0 (history still loading) or -1 (refused as too far), and
+      //--- neither is a hit. Only a real count can be on a number.
+      if(c > 0 && KihonIs(c, InpKihonCompound))
+         return(true);                          // one is enough to open it
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| One segment block: the kihon candle's own header, then the finer |
+//| counts taken from inside it. Nothing at all when that timeframe  |
+//| is not on a number.                                              |
+//|                                                                  |
+//| The segment starts at the DEVELOPING candle's open. Under        |
+//| inclusive counting the developing candle carries the count, so a |
+//| count of 9 means the candle in front of you is the ninth one -   |
+//| the hit is now, not in the past, and the minutes to count are    |
+//| the ones running.                                                |
+//|                                                                  |
+//| Which finer rows it gets is decided by what fits - see g_ksFine. |
+//+------------------------------------------------------------------+
+
+//--- The ladder counted INSIDE a kihon candle, coarse to fine like every block
+//--- in the panel. A row is shown only when at least one kihon number fits
+//--- inside the candle, which is what puts M15 under an H4 and not under an H1:
+//--- sixteen M15 candles fit in an H4, so 9 is in reach and the row can say
+//--- something, where the four that fit in an H1 could never read anything but
+//--- "9 in 5" for the whole hour. It is the same rule that keeps the day anchor
+//--- off the H4 count above, applied at the other end of the nesting - do not
+//--- count what cannot reach a number.
+//---
+//--- What survives it: inside an H4, M15 to 16, M5 to 48 and M1 to 240, so the
+//--- rows run to 9, 42 and 226. Inside an H1, M5 to 12 and M1 to 60, so 9 and
+//--- 51. The short ones are the point rather than a shortcoming - what they
+//--- measure is how far into the kihon candle the market has come, and the
+//--- numbers that fit inside it are the only ones that can mean anything there.
+const ENUM_TIMEFRAMES g_ksFine[3] = { PERIOD_M15, PERIOD_M5, PERIOD_M1 };
+
+bool SegAdd(const ENUM_TIMEFRAMES tf, const bool withDay, const bool gap,
+            string &txt[], color &clr[], int &n)
+  {
+   if(!SegIsKihon(tf, withDay))
+      return(false);
+
+   datetime from = iTime(_Symbol, tf, 0);      // the kihon candle itself
+
+   if(gap)
+      PanelPush(txt, clr, n, "", InpPanelColor);
+
+   //--- Same shape as a block title in the panel beside it - what, then the
+   //--- open everything under it counts from - because that is exactly what it
+   //--- is. Here the open is a candle's rather than a calendar period's, which
+   //--- is the only difference between the two blocks. In the hit colour: the
+   //--- candle it names IS the hit, and the rows below it colour themselves on
+   //--- their own counts.
+   PanelPush(txt, clr, n,
+             StringFormat("%-6s from %s", TfNameOf(tf),
+                          (from > 0) ? TimeToString(from, TIME_MINUTES) : "-"),
+             InpPanelHit);
+
+   //--- Compared in seconds rather than by position in the list, so a broker's
+   //--- non-standard period lands where its length puts it, the same way
+   //--- KihonDayList picks the day ladder.
+   int span = PeriodSeconds(tf);
+
+   for(int i = 0; i < ArraySize(g_ksFine); i++)
+     {
+      int fine = PeriodSeconds(g_ksFine[i]);
+      if(fine <= 0 || span / fine < KihonNumbers[0])
+         continue;                              // cannot reach even the first
+
+      color  col = InpPanelColor;
+      string row = PanelRow(g_ksFine[i], from, col);
+      PanelPush(txt, clr, n, row, col);
+     }
+
+   return(true);
   }
 
 //+------------------------------------------------------------------+
@@ -1147,10 +1407,11 @@ void PanelBox(const int n, const int top, const int size,
 //| on a kihon number is a small turn due; the day, the week and the |
 //| month all landing on one at the same candle is a bigger one.     |
 //|                                                                  |
-//| Rewritten in place rather than swept and rebuilt: the rows are   |
-//| fixed names, so setting their text costs nothing and there is no |
-//| window in which the panel is missing. Rows past the last one     |
-//| used are deleted, which is what clears a block switched off.     |
+//| Both panels are built here, in one pass, and placed against each |
+//| other rather than against the chart. The segment block is read   |
+//| off the same anchors as the ladder, so building them apart would |
+//| let one of them show a hit for a minute the other had already    |
+//| moved past.                                                      |
 //+------------------------------------------------------------------+
 void UpdatePanel()
   {
@@ -1166,9 +1427,9 @@ void UpdatePanel()
 
    g_pHeight  = ch;
 
-   //--- A fresh load or an input change rebuilds the objects from scratch, so
-   //--- the block is created BEFORE the rows again. Same-layer objects paint in
-   //--- creation order, so a block created after them would cover them.
+   //--- A fresh load or an input change rebuilds the objects from scratch
+   //--- rather than rewriting them in place. PanelDraw does the sweep, and
+   //--- needs telling, because it also has to recreate the block first.
    bool fresh = g_pDirty;
 
    g_pLast    = m1;
@@ -1196,16 +1457,11 @@ void UpdatePanel()
                   g_kpWeek, txt, clr, n);
 
       //--- The day block follows the chart's own anchor when that anchor is a
-      //--- custom session time, so the panel agrees with the marks drawn on the
-      //--- chart instead of quietly counting from a different open. Every other
-      //--- anchor mode belongs to one of the blocks above, so the day block
-      //--- stays on the day open.
+      //--- custom session time; see PanelDayOpen.
       if(InpShowDay)
         {
-         bool     sess    = (InpCountAnchor == KIHON_ANCHOR_TIME);
-         datetime dayOpen = sess ? KihonAnchor(_Symbol, InpCountAnchor,
-                                               InpAnchorHour, InpAnchorMin)
-                                 : iTime(_Symbol, PERIOD_D1, 0);
+         bool     sess    = false;
+         datetime dayOpen = PanelDayOpen(sess);
 
          ENUM_TIMEFRAMES day[];
          KihonDayList(day);
@@ -1231,68 +1487,70 @@ void UpdatePanel()
         }
      }
 
-   //--- Hand the built rows to PanelBox, which sizes the block to the widest
-   for(int i = 0; i < n; i++)
-      g_pTxt[i] = txt[i];
-   g_pRows = n;
+   //--- The segment panel. Its rows exist only while an H4 or an H1 is standing
+   //--- on a kihon number, which is a handful of minutes in a session, so the
+   //--- section keeps its title and says "none" the rest of the time rather
+   //--- than vanishing off the chart and taking its own explanation with it.
+   string stx[KP_MAX_ROWS];
+   color  scl[KP_MAX_ROWS];
+   int    sn = 0;
 
-   int size  = (int)MathMax(6, MathMin(20, InpPanelSize));
-   int lineH = (int)(size * 1.9) + 2;
-
-   //--- Y grows away from the chosen corner, so from a lower corner the rows
-   //--- stack upwards and have to be laid out bottom first to read in order.
-   bool up = (InpPanelCorner == CORNER_LEFT_LOWER ||
-              InpPanelCorner == CORNER_RIGHT_LOWER);
-
-   //--- Centring works from whichever edge the corner names, so it lands in the
-   //--- middle from an upper or a lower corner alike. Clamped at the padding so
-   //--- a panel taller than the chart starts on screen rather than above it.
-   int top = InpPanelY;
-   if(InpPanelMiddle && ch > 0)
-      top = (int)MathMax(KP_PAD, (ch - n * lineH) / 2);
-
-   if(fresh)
-      ObjectsDeleteAll(0, PO3_KPANEL, -1, -1);
-
-   PanelBox(n, top, size, lineH);
-
-   for(int r = 0; r < n; r++)
+   if(InpShowSeg)
      {
-      string name = PO3_KPANEL + IntegerToString(r);
-      int    slot = up ? (n - 1 - r) : r;
+      PanelPush(stx, scl, sn, "Kihon Suchi segments", InpPanelColor);
 
-      //--- Spacers are layout, not content. A label with empty text is not an
-      //--- invisible label: MT5 falls back to its default caption and draws the
-      //--- word "Label", one per gap between blocks. The row still occupies its
-      //--- slot, so the gap and the block height are unchanged - there is just
-      //--- no object. Deleted rather than skipped, to clear any left behind by
-      //--- a build that did create them.
-      if(txt[r] == "")
-        {
-         ObjectDelete(0, name);
-         continue;
-        }
+      //--- H4 is read against the month and the week only. A trading day holds
+      //--- six H4 candles, so a day-anchored H4 count stops at 6 and could
+      //--- never be on a number - checking it would cost a count to learn
+      //--- nothing. H1 gets the day as well, where it runs to 24 and the first
+      //--- three numbers are all in reach.
+      bool any = false;
+      if(InpSegH4 && SegAdd(PERIOD_H4, false, false, stx, scl, sn))
+         any = true;
+      //--- The gap goes in only when an H4 block came first, so a lone H1
+      //--- block is not pushed away from the title by an empty row.
+      if(InpSegH1 && SegAdd(PERIOD_H1, true, any, stx, scl, sn))
+         any = true;
 
-      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
-
-      ObjectSetInteger(0, name, OBJPROP_CORNER,     InpPanelCorner);
-      ObjectSetInteger(0, name, OBJPROP_XDISTANCE,  InpPanelX);
-      ObjectSetInteger(0, name, OBJPROP_YDISTANCE,  top + slot * lineH);
-      ObjectSetInteger(0, name, OBJPROP_ANCHOR,     AnchorFor(InpPanelCorner));
-      ObjectSetString (0, name, OBJPROP_TEXT,       txt[r]);
-      //--- fixed pitch, or the columns will not line up between rows
-      ObjectSetString (0, name, OBJPROP_FONT,       "Consolas");
-      ObjectSetInteger(0, name, OBJPROP_COLOR,      clr[r]);
-      ObjectSetInteger(0, name, OBJPROP_FONTSIZE,   size);
-      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, name, OBJPROP_SELECTED,   false);
-      ObjectSetInteger(0, name, OBJPROP_HIDDEN,     true);
+      if(!any)
+         PanelPush(stx, scl, sn, " none", InpPanelColor);
      }
 
-   //--- Whatever the last layout left behind. Deleting only the tail means a
-   //--- steady panel is never torn down and rebuilt, so it does not flicker.
-   for(int r = n; r < KP_MAX_ROWS; r++)
-      ObjectDelete(0, PO3_KPANEL + IntegerToString(r));
+   //--- Both panels, same code, same pass, same text size: they are one
+   //--- instrument in two blocks, and two sizes would read as two.
+   int size  = (int)MathMax(6, MathMin(20, InpPanelSize));
+   int lineH = PanelLineH(size);
+
+   //--- The top edge both blocks share. Centring works from whichever edge the
+   //--- corner names, so it lands in the middle from an upper or a lower corner
+   //--- alike, and it is worked out from the COUNT panel's height - that is the
+   //--- tall one, and the short block beside it lines up with its top rather
+   //--- than floating in the middle of it. Clamped at the padding so a panel
+   //--- taller than the chart starts on screen rather than above it.
+   //---
+   //--- With the count panel switched off there is no tall block to centre on,
+   //--- so the segment panel centres on itself and takes the whole X.
+   int rows = (n > 0) ? n : sn;
+   int top  = InpPanelY;
+   if(InpPanelMiddle && ch > 0)
+      top = (int)MathMax(KP_PAD, (ch - rows * lineH) / 2);
+
+   //--- Beside, not below: one block's width plus its two paddings, plus the
+   //--- gap. From a left corner X measures rightward and the segment panel
+   //--- lands to the right of the count panel; from a right corner X measures
+   //--- leftward and it lands to the left of it. Either way it is on the far
+   //--- side of the count panel from the chart edge, which is the only side
+   //--- with room, and the arithmetic is the same for both.
+   int segX = InpPanelX;
+   if(n > 0)
+      segX += PanelWidth(txt, n, size) + 2 * KP_PAD
+              + (int)MathMax(0, InpSegGap);
+
+   PanelDraw(PO3_KPANEL, InpPanelCorner, InpPanelX, top,
+             txt, clr, n, size, fresh);
+
+   PanelDraw(PO3_KSEG, InpPanelCorner, segX, top,
+             stx, scl, sn, size, fresh);
   }
 
 //+------------------------------------------------------------------+

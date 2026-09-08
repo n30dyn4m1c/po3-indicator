@@ -44,6 +44,7 @@ on the time theory (*jikan ron*) of Goichi Hosoda's Ichimoku Kinko Hyo.
 - Candle count from the market open, with the kihon suchi numbers marked on the chart
 - A panel counting the year, month, week and day, each in the candles that divide it
 - A nested M1 count that restarts at every kihon suchi H1 candle
+- A second block beside that panel, counting M15, M5 and M1 inside any H4 or H1 candle standing on a kihon number
 - Session timer for capping screen time, unaffected by switching timeframe
 - Redraws only when price crosses a grid cell or a new bar opens, not on every tick
 
@@ -193,6 +194,10 @@ Open Pine Editor, paste `PO3_Gold_Levels.pine`, save, then Add to chart.
 | Colour of a row standing ON a kihon number | `clrLime` | |
 | Colour of a row within reach of one | `clrOrange` | |
 | How many candles either side counts as near | `2` | Clamped to 0–8; `0` switches the orange state off |
+| Show the kihon segment panel | `true` | The block beside the count panel: M15, M5 and M1 inside a kihon H4 or H1 candle |
+| Segments inside a kihon H4 candle | `true` | Checked against the month and week anchors |
+| Segments inside a kihon H1 candle | `true` | Checked against the month, week and day anchors |
+| Gap between the two blocks, in pixels | `8` | Its only placement input — it follows the count panel's corner, centring and X |
 
 Width and style are derived from magnitude: 3/9/27 thin dotted, 81/243 thin
 solid, 729/2187 medium, 6561/19683 thick.
@@ -302,25 +307,25 @@ divide it. This is an M15 chart on Tuesday 8 September at 10:22:
 
 ```text
 Year   from 2026.01.01
-  MN1       9  KIHON
+  MN1       9  KS
   W1       37  42 in 5
-  D1      174  KIHON +2
+  D1      174  KS +2
 
 Month  from 2026.09.01
   D1        6  9 in 3
-  H4       33  KIHON
-  H1      131  KIHON +2
+  H4       33  KS
+  H1      131  KS +2
 
 Week   from 2026.09.07
-  H4        9  KIHON
-  H1       35  KIHON +2
+  H4        9  KS
+  H1       35  KS +2
   M30      69  76 in 7
 
 Day    from 00:00
-  H1       11  KIHON +2
+  H1       11  KS +2
   M30      21  26 in 5
-> M15      42  KIHON
-  M1@9     83  129 in 46
+> M15      42  KS
+  M1@9    143  172 in 29
 ```
 
 Every block carries **its own anchor** — a week counted from the day open would
@@ -346,21 +351,23 @@ carrying information none of the others do.
 **A kihon candle is often kihon on several timeframes at once.** The compound
 chain 9 → 17 → 33 → 65 → 129 → 257 is each number doubled less one, and under
 inclusive counting halving the timeframe maps a count `c` to `2c − 1` exactly.
-So the moment H1 reads 9, M30 reads 17 and M15 reads 33 — all three lime
-together. That is arithmetic, not confirmation: three rows agreeing
+So the moment H1 reads 9, M30 reads 17 and M15 reads 33 — all three `KS` and
+lime together. That is arithmetic, not confirmation: three rows agreeing
 because they are the same instant counted three ways is not the same as the
 week and the month agreeing with the day.
 
 #### Reading a row
 
 Each row is the count, then its standing against the nearest kihon suchi
-number:
+number. `KS` is that phrase abbreviated — it is the only thing in a row that
+repeats, and spelling it out made the counts, which are the reading, the
+quieter half of the line:
 
 | Tail | Colour | Meaning |
 |---|---|---|
-| `KIHON` | **lime** | The count is standing on one right now |
-| `KIHON -2` | **orange** | Two candles short of one |
-| `KIHON +2` | **orange** | Two candles past one |
+| `KS` | **lime** | The count is standing on one right now |
+| `KS -2` | **orange** | Two candles short of one |
+| `KS +2` | **orange** | Two candles past one |
 | `42 in 6` | plain | Six candles until 42 |
 | `past 257` | plain | Beyond the last number; nothing left to count to |
 | `no data` | plain | The history is not there to count |
@@ -389,12 +396,125 @@ again at H1 candle 17. A day is not long enough to reach 26.
 
 The reset lands *on* the kihon candle, not after it — as the ninth hour opens,
 the M1 count reads 1. The label carries the hour it restarted at, because the
-count alone cannot tell you which phase of the day it is measuring: `M1@9` is
-43 minutes into the second phase, not 43 minutes into the day.
+count alone cannot tell you which phase of the day it is measuring: `M1@9 143`
+is 143 minutes into the second phase of the day, not 143 minutes into the day.
 
 This is the general nesting rule — a fine count restarting at each kihon candle
 of a coarse one — and `KihonSegmentStart()` in `PO3_Kihon.mqh` implements it for
-any pair of timeframes. The panel currently uses it for M1 inside H1 only.
+any pair of timeframes. The count panel uses it for M1 inside H1 only; the
+block beside it nests one step further, and differently — see the next
+section.
+
+#### Inside the kihon candle: the segment block
+
+The nesting rule above stops at the hour. A second block, standing beside the
+count panel, carries it one step further — into the candle itself.
+
+When an H4 or an H1 count stands **on** a number — one of the lime rows — the
+candle carrying that number *is* a kihon candle, and it is a kihon candle for
+its whole length: four hours, or one. The panel beside it tells you that hour
+is due a turn; it cannot tell you where in the hour you are. So this block
+counts the candles **inside** that candle, from its open:
+
+```text
+Year   from 2026.01.01       Kihon Suchi segments
+  MN1       9  KS            H4     from 08:00
+  W1       37  42 in 5         M15      10  KS +1
+  D1      174  KS +2           M5       29  33 in 4
+                               M1      143  172 in 29
+Month  from 2026.09.01
+  D1        6  9 in 3
+  H4       33  KS
+  H1      131  KS +2
+
+Week   from 2026.09.07
+  H4        9  KS
+  H1       35  KS +2
+  M30      69  76 in 7
+
+Day    from 00:00
+  H1       11  KS +2
+  M30      21  26 in 5
+> M15      42  KS
+  M1@9    143  172 in 29
+```
+
+Two blocks, not one — each with its own background and border, sharing a top
+edge and a row pitch. This is the same 10:22 snapshot as above. The `H4` block
+is open because `H4 33 KS` in the month block and `H4 9 KS` in the week block
+are lime; no H1 count is on a number — 131, 35 and 11 are each two past one —
+so there is no H1 block, and there would be one the moment any of those three
+landed.
+
+**Everything in the block counts from the candle, and nothing from a
+calendar.** The header reads `H4 from 08:00` and every row under it is measured
+from that open: 10 M15 candles, 29 M5, 143 M1 into *this* H4. The month and
+week anchors decide only whether the block opens; they take no further part,
+and no figure in it is a count since a day, week or month open. Those counts
+are the panel beside it, which carries them in full.
+
+It is the same shape as a block title in that panel — what, then the open
+everything under it counts from. The only difference is that here the open
+belongs to a candle rather than a calendar period.
+
+The header is lime because the candle it names is the hit. The rows below it
+are ordinary count rows and colour themselves on their own counts, against the
+same numbers and the same tolerance as everything else — `M15 10` is orange, one
+candle past 9, while `M5 29` is four short of 33 and plain.
+
+**The same candle can be counted twice at two different numbers**, and this is
+the clearest illustration of the split. The count panel's day block reads
+`M15 42 KS`, lime; the segment reads `M15 10 KS +1`. Both are the developing
+10:15 candle. The H4 opened at 08:00, which is 32 M15 candles into the day, and
+42 − 32 = 10. The day says this candle is due a turn in the session; the
+segment says it is one candle past due inside the hit H4. Neither number is
+wrong, and each block only ever shows its own.
+
+**What counts as a hit.** An H4 is checked against the month and week anchors,
+an H1 against the month, week and day. Any one of them landing on a number
+opens the block. H4 gets no day anchor because a trading day holds six H4
+candles, so a day-anchored H4 count stops at 6 and could never reach 9. These
+are read from the anchors directly, so the block says the same thing whether or
+not you have the row that would show the hit switched on.
+
+**The M1 row can repeat the `M1@` row, and that is not a bug.** Above, both
+read 143: the hit H4 opened at 08:00, and 08:00 is also H1 candle 9, so the
+nested M1 count and the segment M1 count start at the same candle. They agree
+whenever a kihon H1 candle opens a kihon H4, which is when the two counts are
+genuinely measuring the same thing.
+
+**Which rows you get depends on what fits.** A row appears only when at least
+one kihon number is reachable inside the candle — nine of it have to fit, or
+the row could never say anything but a countdown:
+
+| Segment | Rows | Counts to | Numbers in range |
+|---|---|---|---|
+| Inside an H4 | M15, M5, M1 | 16, 48, 240 | 9 / 42 / 226 |
+| Inside an H1 | M5, M1 | 12, 60 | 9 / 51 |
+
+**M15 is in the H4 box and not the H1 box** for that reason, not by choice.
+Sixteen M15 candles fit in an H4, so 9 is in reach and the row can land on it.
+Four fit in an H1, where the row would read `9 in 5`, then `9 in 4`, and be
+gone before it ever arrived. It is the same rule that keeps the day anchor off
+the H4 count, applied at the other end of the nesting: do not count what cannot
+reach a number.
+
+The short reaches are the point, not a shortcoming. What these rows measure is
+how far into the kihon candle the market has come, and the numbers that fit
+inside it are the only ones that can mean anything there.
+
+**It has no position of its own.** It takes the count panel's corner and its
+top edge and stands one gap further along — to the right of it from a left
+corner, to the left of it from a right corner, always on the side away from the
+chart edge. Its X is the count panel's *measured* width, so the two blocks
+cannot overlap however wide the rows get, and moving the count panel moves
+both. The gap input is the only thing to set.
+
+The section reads `none` most of the time — an H4 or H1 count is on a number
+for a handful of candles in a session. It keeps its title rather than vanishing
+so the space stays accounted for, and it is read off the anchors directly, so
+it says the same thing whether or not you have the block that would show that
+row switched on.
 
 **A caution.** The count is arithmetic, not a signal. It tells you where a turn
 is *due*, never that one is happening and never which way. Nothing in the
