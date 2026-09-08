@@ -27,6 +27,9 @@ Based on the Power of Three / Goldbach level model taught by **Hopiplaka**.
 - PO3 number written on each line, with a threshold to keep fine grids unlabelled
 - Whole-number levels by default on gold; a scale divisor switches to the two-decimal form
 - Countdown to the current candle's close beside that candle, in units that follow the chart timeframe
+- Candle count from the market open, with the kihon suchi numbers marked on the chart
+- A panel counting the year, month, week and day, each in the candles that divide it
+- A nested M1 count that restarts at every kihon suchi H1 candle
 - Session timer for capping screen time, unaffected by switching timeframe
 - Redraws only when price crosses a grid cell or a new bar opens, not on every tick
 
@@ -75,6 +78,7 @@ checkbox order it is registered in.
 
 ```text
 PO3_Core.mqh            Shared PO3 level maths, used by the EA
+PO3_Kihon.mqh           Kihon suchi numbers and the candle count, used by the indicator
 PO3_Levels.mq5          MetaTrader 5 indicator, whole-number PO3 grids by checkbox
 PO3_Scalper.mq5         MetaTrader 5 Expert Advisor, scalps rejections of the 9 and 27 grids
 PO3_Gold_Levels.pine    TradingView Pine v5, fixed gold level list from the workbook
@@ -141,6 +145,31 @@ Open Pine Editor, paste `PO3_Gold_Levels.pine`, save, then Add to chart.
 | Text colour (session) | `clrSilver` | |
 | Minutes on chart before it turns red | `0` | `0` is off; otherwise the timer recolours and alerts once when the budget is spent |
 | Text colour once over the limit | `clrTomato` | |
+| Draw the count on the chart | `true` | The open line and the kihon suchi marks |
+| Count from | `Day open` | Day open, week open, month open, year open, or a custom time of day (server). Drives the on-chart marks; the panel carries its own anchors |
+| Custom anchor, hour / minute | `8` / `0` | Only read when *Count from* is the custom time |
+| Line on the candle the count starts at | `true` | |
+| Open line colour | `clrDimGray` | |
+| Mark the kihon suchi candles | `true` | |
+| Include the compound numbers (33 and up) | `true` | Untick for 9, 17 and 26 only |
+| Vertical line on each marked candle | `true` | Drawn behind the candles |
+| 9, 17, 26 — colour | `clrDeepSkyBlue` | The simple numbers |
+| 33 and up — colour | `clrMediumOrchid` | The compound numbers |
+| Marker text size | `8` | |
+| Marker offset from the candle low, in points | `0` | Positive pushes the number further below the low |
+| Number every candle, not just the kihon ones | `false` | Capped at the most recent 300 candles |
+| Show the count panel | `true` | |
+| Year block — MN1, W1, D1 | `true` | Months, weeks and trading days since 1 January |
+| Month block — D1, H4, H1 | `true` | Since the 1st |
+| Week block — H4, H1 | `true` | Since the week open |
+| Day block — H1 to chart | `true` | Runs from H1 down to the chart's own period, plus the nested M1 row |
+| Corner (panel) | `CORNER_LEFT_UPPER` | Rows stack downward from an upper corner, upward from a lower one |
+| Distance from corner, X / Y (panel) | `12` / `20` | |
+| Text size (panel) | `9` | |
+| Text colour (panel) | `clrSilver` | |
+| Colour of a row standing ON a kihon number | `clrLime` | |
+| Colour of a row within reach of one | `clrOrange` | |
+| How many candles either side counts as near | `2` | Clamped to 0–8; `0` switches the orange state off |
 
 Width and style are derived from magnitude: 3/9/27 thin dotted, 81/243 thin
 solid, 729/2187 medium, 6561/19683 thick.
@@ -181,6 +210,163 @@ symbol keeps it running, since it is the same chart.
 
 Set *Minutes on chart before it turns red* to a limit and the timer recolours
 once you pass it and raises one alert. `0` leaves it a plain always-on clock.
+
+### Candle count and kihon suchi
+
+The count answers one question: how many candles have printed since the market
+opened. It is Ichimoku's time count, so it is **inclusive at both ends** — the
+candle sitting at the open is candle 1, not candle 0. That single convention is
+what makes the compound numbers overlap by one, and it is why the count here
+will read one higher than a plain zero-based bar index.
+
+*Count from* sets the anchor for the marks drawn on the chart; the panel below
+carries its own anchor per block. **Day open** and **week open** come from the
+D1 and W1 bars themselves, so they follow the broker's own day boundary rather
+than a guess at it. **Month open** and **year open** are built from the
+calendar — there is no yearly candle to read a year off — so counts against
+them start at the first candle that *opens* inside the period: a weekly candle
+straddling New Year belongs to the old year. **Custom time of day** is a
+session open — today's date at
+the hour and minute you set, rolled back a day if that time has not come round
+yet, and then clamped to the day open. The clamp is the part worth knowing: an
+08:00 London anchor read at 03:00 on a Monday would otherwise roll back to
+08:00 on *Friday* and count the whole weekend through. Clamped, a session
+anchor never counts across a day boundary — before the session opens you get
+the count from the day open, and the moment it opens the count restarts there.
+
+#### The numbers
+
+Kihon suchi (基本数値) are Ichimoku's basic time numbers: candles at which a
+move is due to change character. They say nothing about direction. There are
+three simple ones and nine compounds, and every compound is built by chaining
+simple spans that **share their turning candle** — two 17s joined make 33, not
+34, because the last candle of the first span is the first candle of the second.
+
+| | Number | Built from |
+|---|---|---|
+| **Simple** | 9 | *ichi-moku*, the Tenkan span |
+| | 17 | 9 + 9 − 1 |
+| | 26 | 17 + 9 − 1, the Kijun span and the cloud displacement |
+| **Compound** | 33 | 17 + 17 − 1 |
+| | 42 | 26 + 17 − 1 |
+| | 51 | 26 + 26 − 1 |
+| | 65 | 33 + 33 − 1 (four 17s chained) |
+| | 76 | 26 + 26 + 26 − 2, also 51 + 26 − 1 |
+| | 129 | 65 + 65 − 1 |
+| | 172 | 65 + 65 + 42 — see below |
+| | 226 | 76 + 76 + 76 − 2 |
+| | 257 | 129 + 129 − 1 |
+
+**172 is the one number that does not fall out of the overlap rule cleanly.**
+The identity above is a plain sum, not a chain of shared candles. It is in the
+list because the classical list has it, not because this project can derive it.
+Treat it as the weakest member of the set.
+
+The series keeps doubling past 257 — 257 + 257 − 1 = 513 — but a number that
+large has no use on an intraday chart, where even 257 M1 candles is only a
+little over four hours. The list stops where the classical one stops.
+
+Simple and compound are coloured differently and *Include the compound numbers*
+turns the compounds off, which leaves 9, 17 and 26 on a much quieter chart.
+
+#### The panel
+
+The panel is a ladder of calendar periods, each counted in the candles that
+divide it. This is an M15 chart on Tuesday 8 September at 10:22:
+
+```text
+Year   from 2026.01.01
+  MN1       9  KIHON
+  W1       37  42 in 5
+  D1      174  KIHON +2
+
+Month  from 2026.09.01
+  D1        6  9 in 3
+  H4       33  KIHON
+  H1      131  KIHON +2
+
+Week   from 2026.09.07
+  H4        9  KIHON
+  H1       35  KIHON +2
+
+Day    from 00:00
+  H1       11  KIHON +2
+  M30      21  26 in 5
+> M15      42  KIHON
+  M1@9     83  129 in 46
+```
+
+Every block carries **its own anchor** — a week counted from the day open would
+read 1 forever. `>` flags the chart's own timeframe, and blocks can be switched
+off individually.
+
+**Year, month and week are fixed.** They say the same thing whatever period the
+chart is on, which is what makes them readable across a timeframe change — a
+week is a week in H1 candles whether you are looking at M1 or D1.
+
+**The day block follows the chart.** It runs from H1 down to the chart's own
+period and stops: on M15 you get H1, M30, M15; on M5 that plus M5. Detail finer
+than the candles in front of you is a count of something you cannot see. H1 is
+always kept, so an H4 or daily chart still gets the hour count rather than an
+empty block. The `M1@` row is always there, on every period — it is the one row
+carrying information none of the others do.
+
+**A kihon candle is often kihon on several timeframes at once.** The compound
+chain 9 → 17 → 33 → 65 → 129 → 257 is each number doubled less one, and under
+inclusive counting halving the timeframe maps a count `c` to `2c − 1` exactly.
+So the moment H1 reads 9, M30 reads 17 and M15 reads 33 — all three lime
+together. That is arithmetic, not confirmation: three rows agreeing
+because they are the same instant counted three ways is not the same as the
+week and the month agreeing with the day.
+
+#### Reading a row
+
+Each row is the count, then its standing against the nearest kihon suchi
+number:
+
+| Tail | Colour | Meaning |
+|---|---|---|
+| `KIHON` | **lime** | The count is standing on one right now |
+| `KIHON -2` | **orange** | Two candles short of one |
+| `KIHON +2` | **orange** | Two candles past one |
+| `42 in 6` | plain | Six candles until 42 |
+| `past 257` | plain | Beyond the last number; nothing left to count to |
+| `no data` | plain | The history is not there to count |
+| `too far` | plain | The count was *refused* — see below |
+
+The sign reads the way the chart does: a count running up towards a number
+shows a negative gap closing to zero, then goes positive as it leaves. The
+window is **nearest**, not next, deliberately — a count two candles past 26 is
+as much "around 26" as one two candles short of it, and a turn that was due at
+26 is not cancelled by the candle after it. Set the tolerance to `0` if you
+only want the exact hits.
+
+`no data` and `too far` are different answers. The second means the anchor is
+further back than 20,000 periods of that timeframe, where getting an exact
+figure would drag a large history in to say something `past 257` already says.
+
+The day counts are trading candles, not calendar units — the year's `D1` row is
+trading days, not the day of the year.
+
+#### The nested M1 count
+
+`M1@1` is the odd one out. Run across a whole day, an M1 count is past 257 by
+breakfast and says nothing for the rest of the session. So it **restarts at
+every kihon suchi H1 candle** instead: at H1 candle 1, again at H1 candle 9,
+again at H1 candle 17. A day is not long enough to reach 26.
+
+The reset lands *on* the kihon candle, not after it — as the ninth hour opens,
+the M1 count reads 1. The label carries the hour it restarted at, because the
+count alone cannot tell you which phase of the day it is measuring: `M1@9` is
+43 minutes into the second phase, not 43 minutes into the day.
+
+This is the general nesting rule — a fine count restarting at each kihon candle
+of a coarse one — and `KihonSegmentStart()` in `PO3_Kihon.mqh` implements it for
+any pair of timeframes. The panel currently uses it for M1 inside H1 only.
+
+**A caution.** The count is arithmetic, not a signal. It tells you where a turn
+is *due*, never that one is happening and never which way. Nothing in the
+indicator acts on these numbers, and the EA does not read them.
 
 ## PO3 Scalper (Expert Advisor)
 
