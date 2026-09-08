@@ -991,12 +991,13 @@ int PanelWidth(const string &txt[], const int n, const int size)
 
    TextSetFont("Consolas", -size * 10, 0, 0);
 
+   //--- TextGetSize writes back through uint references, so the locals have to
+   //--- be uint - an int argument will not bind and does not compile.
    for(int i = 0; i < n; i++)
      {
-      int w = 0, h = 0;
-      TextGetSize(txt[i], w, h);
-      if(w > wmax)
-         wmax = w;
+      uint w = 0, h = 0;
+      if(TextGetSize(txt[i], w, h) && (int)w > wmax)
+         wmax = (int)w;
      }
 
    if(wmax <= 0)
