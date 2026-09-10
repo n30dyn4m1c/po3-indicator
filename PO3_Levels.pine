@@ -1,0 +1,1073 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+//  PO3 Levels & Kihon Suchi  —  a Pine v5 port of PO3_Levels.mq5
+//
+//  Same instrument, same arithmetic, on TradingView instead of MetaTrader:
+//
+//    · Power of Three levels around price, one checkbox and one colour per
+//      PO3 number from 3 to 19683, merged so the highest number owns a level
+//    · Candles counted from the year, month, week and day opens, with the
+//      Ichimoku kihon suchi numbers marked on that count
+//    · The count panel, the nested M1 count, and the segment block that
+//      counts the minutes inside a kihon H4 or H1 candle
+//    · Countdown on the developing candle, and the session screen-time clock
+//
+//  Pine has no #include, so the two MQL headers are inlined below rather than
+//  referenced: PO3_Kihon.mqh becomes the "Kihon suchi" section and
+//  PO3_Core.mqh the "PO3 level maths" section, both kept whole and kept first,
+//  so the port can be read against the originals function by function.
+//
+//  WHAT THE PLATFORM CHANGES. Everything here is a Pine limit, not a decision:
+//
+//    · Drawing budget. Pine allows 500 lines and 500 labels per script, where
+//      MT5 has no practical ceiling. "Levels each side of price" is therefore
+//      clamped to 25 rather than 100, which caps nine ticked grids at 450
+//      lines. Level labels have their own budget, and the panel says so when
+//      it bites rather than dropping them quietly.
+//    · No z-order. Pine drawings are always in front of the candles, so
+//      "Draw lines behind the candles" has no equivalent and is not offered.
+//      The kihon vertical lines are drawn dotted and dimmed instead.
+//    · The panel is a table. Tables are pinned to one of nine positions, not
+//      to a pixel offset, so Corner and "Centre it vertically" survive but the
+//      X and Y distances do not. The two blocks share one table, side by side,
+//      which is what "beside, sharing a top edge" comes to here.
+//    · Text sizes are buckets. Pine takes tiny/small/normal/large/huge, not a
+//      point size, so the size inputs offer those instead of 5-24.
+//    · No timer. MT5 redraws the countdown once a second off OnTimer; Pine
+//      only runs on a tick or a bar update, so a quiet market leaves the
+//      countdown showing the last tick's figure rather than counting down
+//      through the silence.
+//    · No terminal globals. The session clock therefore restarts whenever the
+//      script reloads, which on TradingView includes a timeframe change - the
+//      one thing the MT5 version goes out of its way to survive.
+//    · Server time is read as the exchange timezone, which is the nearest
+//      thing TradingView has to a broker's clock.
+//
+//  Counting is inclusive at both ends, as it is in the MQL: the candle sitting
+//  at the anchor is candle 1, not candle 0. That single convention is the
+//  whole of the kihon arithmetic.
+// ─────────────────────────────────────────────────────────────────────────────
+
+indicator("PO3 Levels & Kihon Suchi", "PO3 + Kihon", overlay = true,
+     max_lines_count = 500, max_labels_count = 500, max_boxes_count = 10,
+     max_bars_back = 2000)
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  Kihon suchi — Ichimoku's basic time numbers.        (was PO3_Kihon.mqh)
+//
+//  The count is inclusive at both ends: the candle you start from is candle 1,
+//  not candle 0. Two 17-spans laid end to end do not make 34, because the last
+//  candle of the first span IS the first candle of the second: 17 + 17 - 1 =
+//  33. Every compound number is built that way, by chaining simple spans that
+//  share their turning candle.
+//
+//  THE SIMPLE NUMBERS (tanjun kihon suchi) - 9, 17, 26
+//      9   ichi-moku, the span the Tenkan is built on
+//      17  9 + 9 - 1
+//      26  GIVEN, not derived. The Kijun span and the cloud displacement, and
+//          historically a month of trading days under the six-day week Japan
+//          kept when this was written. It is the one number the overlap rule
+//          does not produce - see the note below.
+//
+//  THE COMPOUND NUMBERS (fukugo kihon suchi)
+//      33   17 + 17 - 1          76   26 + 26 + 26 - 2  (also 51 + 26 - 1)
+//      42   26 + 17 - 1          129  65 + 65 - 1
+//      51   26 + 26 - 1          172  65 + 42 + 42 + 26 - 3
+//      65   33 + 33 - 1          226  76 + 76 + 76 - 2
+//           (four 17s chained)   257  129 + 129 - 1
+//
+//  26 is the exception, not 172. Every compound above chains simple spans
+//  sharing a candle, so k spans subtract k-1. 26 does not come out that way:
+//  three 9s chained give 9+9+9-2 = 25, and 17+9-1 is 25 as well. Reaching 26
+//  needs either a plain 9+17 with no shared candle or 9+9+9-1 with one overlap
+//  too few, and neither is the rule. That is expected - 26 is one of the three
+//  SIMPLE numbers, and a simple number is a given, not a result. It is a
+//  calendar figure that the rule then builds on.
+//
+//  Above 257 the series keeps doubling - 257 + 257 - 1 = 513 - but a number
+//  that large has no meaning on an intraday chart, where even 257 M1 candles
+//  is only a little over four hours. The list stops where the classical one
+//  stops.
+//
+//  What the numbers are FOR: they are candidate turning points in TIME, not in
+//  price. They say nothing about direction. Read them against the PO3 grid
+//  below: a kihon suchi candle landing on a 27 or 81 level is time and price
+//  agreeing, which is the only reason both halves are in one script.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// 3 simple + 9 compound. The simple ones come first and the whole list is
+// ascending, so a scan can stop early and the first KIHON_SIMPLE entries are
+// exactly the simple numbers.
+KIHON_SIMPLE = 3
+KIHON_COUNT  = 12
+var KIHON = array.from(9, 17, 26, 33, 42, 51, 65, 76, 129, 172, 226, 257)
+
+// Ceiling on how many candles a count will chase. Past 257 every count reads
+// the same - there is no kihon number above it - so an exact figure buys
+// nothing. Beyond this the count reports "too far" instead. Deliberately far
+// above 257 so a legitimate deep count, a week of M1 at around 7200, is still
+// counted exactly.
+KIHON_SPAN_CAP = 20000
+
+// Is n a kihon suchi number. The compound flag is a filter, not a separate
+// list: pass false and only 9, 17 and 26 answer true, which is the quiet chart.
+kihonIs(n, withCompound) =>
+    last = withCompound ? KIHON_COUNT : KIHON_SIMPLE
+    hit = false
+    for i = 0 to last - 1
+        k = array.get(KIHON, i)
+        if k == n
+            hit := true
+            break
+        if k > n                              // ascending, so no point going on
+            break
+    hit
+
+// The next kihon suchi number strictly above n, or 0 past the end. Strictly
+// above, so standing ON 26 tells you 33 is next rather than repeating the
+// number you are already on.
+kihonNext(n, withCompound) =>
+    last = withCompound ? KIHON_COUNT : KIHON_SIMPLE
+    nx = 0
+    for i = 0 to last - 1
+        k = array.get(KIHON, i)
+        if k > n
+            nx := k
+            break
+    nx
+
+// The last kihon suchi number at or below n, or 0 below the first.
+kihonAtOrBelow(n, withCompound) =>
+    last = withCompound ? KIHON_COUNT : KIHON_SIMPLE
+    best = 0
+    for i = 0 to last - 1
+        k = array.get(KIHON, i)
+        if k <= n
+            best := k
+        else
+            break
+    best
+
+// Signed distance from n to the NEAREST kihon suchi number.
+//
+// 0 means n is one. Negative means the number is still ahead: 7 returns -2,
+// two candles short of 9. Positive means it has just gone by: 11 returns +2.
+//
+// The sign convention is n minus the number, so it reads the way the chart
+// does - a count running up towards a level shows a negative gap closing to
+// zero, then goes positive as it leaves.
+//
+// Nearest, not next, because either side matters. A count two candles PAST 26
+// is as much "around 26" as one two candles short of it, and a turn that was
+// due at 26 is not cancelled by the candle after it.
+kihonOffset(n, withCompound) =>
+    last = withCompound ? KIHON_COUNT : KIHON_SIMPLE
+    best = n - array.get(KIHON, 0)
+    for i = 1 to last - 1
+        d = n - array.get(KIHON, i)
+        if math.abs(d) < math.abs(best)
+            best := d
+    best
+
+// The last number of the ACTIVE list: with the compounds switched off the
+// series ends at 26, not at 257.
+kihonLast(withCompound) =>
+    array.get(KIHON, (withCompound ? KIHON_COUNT : KIHON_SIMPLE) - 1)
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  PO3 level maths.                                     (was PO3_Core.mqh)
+//
+//  A level is  multiplier x 3^n / scale.  At scale 1 every level is a whole
+//  number, so the gold grid lands on 4374, 4383, 4392 and so on. Powers of
+//  three nest, so every 27 level is also a 9 level: the 27 grid is the
+//  every-third member of the 9 grid. That nesting is what gives a 27 range its
+//  three 9 cells, and the equilibrium of that range is its midpoint.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// The epsilon is not cosmetic. A price sitting exactly on a level, 2952.45
+// against PO3 2187, divides to 134.99999999999997 rather than 135, so a bare
+// floor() would anchor one level too low and shift the whole window down.
+PO3_EPS = 1e-9
+
+// Multiplier index of the level at or below price.
+po3Index(price, po3, scale) =>
+    int(math.floor(price * scale / po3 + PO3_EPS))
+
+// Price of the level with this multiplier. The multiply is done in integers
+// and divided once, so the result is the nearest float to the exact figure.
+// m * (po3/scale) would accumulate drift across the grid.
+po3Level(m, po3, scale) =>
+    (m * po3) / scale
+
+// Spacing between adjacent levels of this grid.
+po3Step(po3, scale) =>
+    po3 / scale
+
+// The level at or below price.
+po3Floor(price, po3, scale) =>
+    po3Level(po3Index(price, po3, scale), po3, scale)
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  The counts themselves — KihonAnchor, KihonCount and KihonSegmentStart,
+//  rewritten for Pine's execution model.
+//
+//  MT5 asks "how many bars of timeframe T lie between the anchor and now" and
+//  the terminal answers from its own history. Pine has no such call, so each
+//  count is computed IN THE CONTEXT OF THE TIMEFRAME BEING COUNTED, by
+//  counting bars since the anchor condition was last true, and pulled back
+//  into the chart's context with request.security. ta.barssince returns 0 on
+//  the bar the condition fired, so +1 gives the inclusive count MT5 produces
+//  and the anchor candle is candle 1.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Where the candle count starts. Same order as ENUM_KIHON_ANCHOR in the MQL,
+// so the numbers below are that enum.
+ANCHOR_DAY   = 0
+ANCHOR_WEEK  = 1
+ANCHOR_MONTH = 2
+ANCHOR_YEAR  = 3
+ANCHOR_TIME  = 4
+
+// True on the first candle of the anchor's period, in the current context.
+//
+// Day and week come from the D1 and W1 boundaries themselves, so they follow
+// the exchange's own session rollover rather than a guess at it - the same
+// reason the MQL reads iTime(PERIOD_D1) instead of computing midnight. Month
+// and year are calendar boundaries, so a weekly candle straddling New Year
+// belongs to the old year.
+//
+// A custom time is a session open, CLAMPED to the day open. The clamp is the
+// part worth explaining: without it, an 08:00 anchor read at 03:00 on Monday
+// would roll back to 08:00 on FRIDAY and count the whole weekend gap. Clamped,
+// a session anchor never counts across a day boundary - before the session
+// opens you get the count from the day open, and the moment it opens the count
+// restarts from there.
+kihonAnchorHere(mode, hh, mm) =>
+    newD = timeframe.change("D")
+    newW = timeframe.change("W")
+    newM = timeframe.change("M")
+    newY = timeframe.change("12M")
+
+    tod = hour(time, syminfo.timezone) * 60 + minute(time, syminfo.timezone)
+    tgt = math.min(23, math.max(0, hh)) * 60 + math.min(59, math.max(0, mm))
+
+    crossed = tod >= tgt
+    var wasCrossed = false
+    // newD carries the clamp: until the session time arrives the day open is
+    // the anchor, and the first bar at or past it takes over.
+    sess = newD or (crossed and not wasCrossed)
+    wasCrossed := crossed
+
+    mode == ANCHOR_WEEK ? newW : mode == ANCHOR_MONTH ? newM :
+      mode == ANCHOR_YEAR ? newY : mode == ANCHOR_TIME ? sess : newD
+
+// Candles since that anchor, inclusive, in the current context. 0 means the
+// answer is not known yet - history still loading, or the anchor older than
+// the bars this chart holds - so a caller can tell "nothing to show" from
+// "candle zero", which does not exist under inclusive counting.
+kihonCountHere(mode, hh, mm) =>
+    n = ta.barssince(kihonAnchorHere(mode, hh, mm))
+    na(n) ? 0 : n + 1
+
+// Candles since the open of the containing candle of a COARSER timeframe -
+// the segment block's count, which starts at a candle rather than a calendar
+// period. Everything it measures is inside that one candle.
+kihonSinceHere(coarse) =>
+    n = ta.barssince(timeframe.change(coarse))
+    na(n) ? 0 : n + 1
+
+// The nested M1 count, and the hour it restarted at.       (KihonSegmentStart)
+//
+// Run across a whole day an M1 count is past 257 by breakfast and says nothing
+// for the rest of the session, so it restarts at every kihon suchi H1 candle
+// instead: at H1 candle 1, again at 9, again at 17. A day is not long enough
+// to reach 26.
+//
+// The reset lands ON the kihon candle, not after it - as the ninth hour opens
+// the M1 count reads 1. segNo carries the hour it restarted at, because the
+// count alone cannot tell you which phase of the day it is measuring.
+//
+// h is the H1 candle number since the day open, tracked on the M1 series
+// because that is the series this runs on. Until the first day boundary in the
+// loaded history there is no h to count from, so the count reports 0 rather
+// than a number counted from an unknown start.
+kihonNestedM1(mode, hh, mm, withCompound) =>
+    dayCond = kihonAnchorHere(mode, hh, mm)
+    newH1   = timeframe.change("60")
+
+    var h   = 0
+    var seg = 0
+    var c   = 0
+
+    if dayCond
+        h   := 1
+        seg := 1
+        c   := 1
+    else if newH1
+        h := h + 1
+        if kihonIs(h, withCompound)
+            seg := h
+            c   := 1
+        else
+            c := c + 1
+    else
+        c := c + 1
+
+    [h > 0 ? c : 0, seg]
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  Inputs
+// ═════════════════════════════════════════════════════════════════════════════
+
+gGrid = "Grid"
+InpScale    = input.float(1.0, "Scale divisor (1 = whole numbers, 100 = workbook 2dp)",
+     minval = 0.000001, group = gGrid)
+// Pine allows 500 lines per script where MT5 has no practical ceiling, so the
+// MQL's 1..100 becomes 1..25: nine ticked grids at 25 each side is 450 lines,
+// which fits with room left for the kihon marks.
+InpEachSide = input.int(3, "Levels each side of price", minval = 1, maxval = 25,
+     group = gGrid, tooltip = "Applies per ticked grid. Capped at 25 by Pine's " +
+     "500-line budget, where the MetaTrader build allows 100.")
+
+gLbl = "Labels"
+InpShowLabels  = input.bool(true, "Write the PO3 number on each line", group = gLbl)
+InpLabelMinPO3 = input.int(3, "Label only levels of PO3 >=", minval = 3, maxval = 19683,
+     group = gLbl, tooltip = "Every label shares one time anchor, so raise this " +
+     "if the fine grids stack digits.")
+InpFontSize    = input.string(size.tiny, "Label text size", group = gLbl,
+     options = [size.tiny, size.small, size.normal, size.large, size.huge])
+InpLabelShift  = input.int(0, "Label shift right, in bars", minval = -50, maxval = 400,
+     group = gLbl, tooltip = "0 anchors at the last bar, always on screen.")
+
+gClk = "Candle countdown"
+InpShowClock   = input.bool(true, "Show time left on the current candle", group = gClk,
+     tooltip = "Pine has no one-second timer, so this refreshes on a tick rather " +
+     "than counting down through a quiet market.")
+InpClockShift  = input.int(1, "Bars right of the developing candle", minval = -10,
+     maxval = 400, group = gClk)
+InpClockGapPts = input.int(0, "Vertical offset from price, in ticks (+ up)", group = gClk)
+InpClockSize   = input.string(size.small, "Text size", group = gClk,
+     options = [size.tiny, size.small, size.normal, size.large, size.huge])
+InpClockColor  = input.color(#00FF00, "Text colour", group = gClk)
+
+gSes = "Session timer"
+InpShowSession  = input.bool(true, "Show time spent on this chart", group = gSes,
+     tooltip = "Wall-clock time since the script loaded. Pine has no terminal " +
+     "globals, so unlike the MetaTrader build this DOES restart on a timeframe change.")
+InpSessionPos   = input.string("Top right", "Corner", group = gSes,
+     options = ["Top left", "Top right", "Bottom left", "Bottom right"])
+InpSessionSize  = input.string(size.normal, "Text size", group = gSes,
+     options = [size.tiny, size.small, size.normal, size.large, size.huge])
+InpSessionColor = input.color(#C0C0C0, "Text colour", group = gSes)
+InpSessionLimit = input.int(0, "Minutes on chart before it turns red (0 = off)",
+     minval = 0, group = gSes)
+InpSessionOver  = input.color(#FF6347, "Text colour once over the limit", group = gSes)
+
+gCnt = "Candle count"
+InpShowCount   = input.bool(true, "Draw the count on the chart", group = gCnt)
+InpCountAnchor = input.string("Day open", "Count from", group = gCnt,
+     options = ["Day open", "Week open", "Month open", "Year open", "Custom time of day"])
+InpAnchorHour  = input.int(8, "Custom anchor, hour (exchange time)", minval = 0,
+     maxval = 23, group = gCnt)
+InpAnchorMin   = input.int(0, "Custom anchor, minute", minval = 0, maxval = 59, group = gCnt)
+InpMarkOpen    = input.bool(true, "Line on the candle the count starts at", group = gCnt)
+InpOpenColor   = input.color(#696969, "Open line colour", group = gCnt)
+
+gKih = "Kihon suchi"
+InpMarkKihon     = input.bool(true, "Mark the kihon suchi candles", group = gKih)
+InpKihonCompound = input.bool(true, "Include the compound numbers (33 and up)", group = gKih)
+InpKihonLines    = input.bool(true, "Vertical line on each marked candle", group = gKih)
+InpKihonSimple   = input.color(#00BFFF, "9, 17, 26 — colour", group = gKih)
+InpKihonComp     = input.color(#BA55D3, "33 and up — colour", group = gKih)
+InpKihonSize     = input.string(size.small, "Marker text size", group = gKih,
+     options = [size.tiny, size.small, size.normal, size.large, size.huge])
+InpKihonGapPts   = input.int(0, "Marker offset from the candle low, in ticks", group = gKih)
+InpNumberAll     = input.bool(false, "Number every candle, not just the kihon ones",
+     group = gKih, tooltip = "Capped at the most recent 300 candles.")
+
+gPnl = "Candle count panel"
+InpShowPanel    = input.bool(true, "Show the count panel", group = gPnl)
+InpShowYear     = input.bool(true, "Year block — MN1, W1, D1", group = gPnl)
+InpShowMonth    = input.bool(true, "Month block — D1, H4, H1", group = gPnl)
+InpShowWeek     = input.bool(true, "Week block — H4, H1, M30", group = gPnl)
+InpShowDay      = input.bool(true, "Day block — H1 to chart", group = gPnl)
+InpPanelCorner  = input.string("Left upper", "Corner", group = gPnl,
+     options = ["Left upper", "Left lower", "Right upper", "Right lower"])
+InpPanelMiddle  = input.bool(true, "Centre it vertically", group = gPnl)
+InpPanelSize    = input.string(size.small, "Text size (panel)", group = gPnl,
+     options = [size.tiny, size.small, size.normal, size.large, size.huge])
+InpPanelBox     = input.bool(true, "Solid block behind the panel", group = gPnl)
+InpPanelBg      = input.color(#121218, "Block colour", group = gPnl)
+InpPanelBorder  = input.color(#696969, "Block border colour", group = gPnl)
+InpPanelColor   = input.color(#C0C0C0, "Text colour (panel)", group = gPnl)
+InpPanelHit     = input.color(#00FF00, "Colour of a row standing ON a kihon number",
+     group = gPnl)
+InpPanelNear    = input.color(#FFA500, "Colour of a row within reach of one", group = gPnl)
+InpPanelNearTol = input.int(2, "How many candles either side counts as near",
+     minval = 0, maxval = 8, group = gPnl, tooltip = "0 switches the orange state off.")
+
+gSeg = "Kihon segment panel"
+InpShowSeg = input.bool(true, "Show the kihon segment panel", group = gSeg,
+     tooltip = "The block beside the count panel: M15, M5 and M1 inside a kihon " +
+     "H4 or H1 candle.")
+InpSegH4   = input.bool(true, "Segments inside a kihon H4 candle", group = gSeg)
+InpSegH1   = input.bool(true, "Segments inside a kihon H1 candle", group = gSeg)
+
+// Every grid is on by default: the model is the whole nest of powers, and a
+// level's strength is meant to be read from how many grids agree on it, which
+// is only visible with all of them drawn. Untick the fine ones for a quieter
+// chart; the levels that remain do not move.
+gPO3 = "PO3 levels to show"
+InpUse_3     = input.bool(true,  "3 — show",     group = gPO3, inline = "p3")
+InpCol_3     = input.color(#808080, "",          group = gPO3, inline = "p3")
+InpUse_9     = input.bool(true,  "9 — show",     group = gPO3, inline = "p9")
+InpCol_9     = input.color(#A9A9A9, "",          group = gPO3, inline = "p9")
+InpUse_27    = input.bool(true,  "27 — show",    group = gPO3, inline = "p27")
+InpCol_27    = input.color(#5F9EA0, "",          group = gPO3, inline = "p27")
+InpUse_81    = input.bool(true,  "81 — show",    group = gPO3, inline = "p81")
+InpCol_81    = input.color(#4682B4, "",          group = gPO3, inline = "p81")
+InpUse_243   = input.bool(true,  "243 — show",   group = gPO3, inline = "p243")
+InpCol_243   = input.color(#3CB371, "",          group = gPO3, inline = "p243")
+InpUse_729   = input.bool(true,  "729 — show",   group = gPO3, inline = "p729")
+InpCol_729   = input.color(#FF8C00, "",          group = gPO3, inline = "p729")
+InpUse_2187  = input.bool(true,  "2187 — show",  group = gPO3, inline = "p2187")
+InpCol_2187  = input.color(#DAA520, "",          group = gPO3, inline = "p2187")
+InpUse_6561  = input.bool(true,  "6561 — show",  group = gPO3, inline = "p6561")
+InpCol_6561  = input.color(#FF4500, "",          group = gPO3, inline = "p6561")
+InpUse_19683 = input.bool(true,  "19683 — show", group = gPO3, inline = "p19683")
+InpCol_19683 = input.color(#DC143C, "",          group = gPO3, inline = "p19683")
+
+// The anchor mode, as the enum number the counting functions take.
+anchorMode = InpCountAnchor == "Week open" ? ANCHOR_WEEK :
+     InpCountAnchor == "Month open" ? ANCHOR_MONTH :
+     InpCountAnchor == "Year open" ? ANCHOR_YEAR :
+     InpCountAnchor == "Custom time of day" ? ANCHOR_TIME : ANCHOR_DAY
+
+// The open the day block counts from. The chart's own anchor when that anchor
+// is a custom session time, so the panel agrees with the marks drawn on the
+// chart instead of quietly counting from a different open; the plain day open
+// otherwise, since every other anchor mode belongs to one of the blocks above
+// the day block.
+daySess = anchorMode == ANCHOR_TIME
+dayMode = daySess ? ANCHOR_TIME : ANCHOR_DAY
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  The counts, pulled back from each timeframe's own context.
+//
+//  Every request.security call lives here, at global scope and unconditional,
+//  because Pine will not have them inside an if or a loop. A row that is
+//  switched off is therefore still counted and simply not shown, which costs a
+//  request and keeps the call graph legal.
+// ═════════════════════════════════════════════════════════════════════════════
+
+LK = barmerge.lookahead_off
+
+// Year block — months, weeks and trading days since 1 January
+cMN1_Y = request.security(syminfo.tickerid, "M", kihonCountHere(ANCHOR_YEAR, 0, 0), lookahead = LK)
+cW1_Y  = request.security(syminfo.tickerid, "W", kihonCountHere(ANCHOR_YEAR, 0, 0), lookahead = LK)
+cD1_Y  = request.security(syminfo.tickerid, "D", kihonCountHere(ANCHOR_YEAR, 0, 0), lookahead = LK)
+
+// Month block — since the 1st
+cD1_M = request.security(syminfo.tickerid, "D",   kihonCountHere(ANCHOR_MONTH, 0, 0), lookahead = LK)
+cH4_M = request.security(syminfo.tickerid, "240", kihonCountHere(ANCHOR_MONTH, 0, 0), lookahead = LK)
+cH1_M = request.security(syminfo.tickerid, "60",  kihonCountHere(ANCHOR_MONTH, 0, 0), lookahead = LK)
+
+// Week block — since the week open
+cH4_W  = request.security(syminfo.tickerid, "240", kihonCountHere(ANCHOR_WEEK, 0, 0), lookahead = LK)
+cH1_W  = request.security(syminfo.tickerid, "60",  kihonCountHere(ANCHOR_WEEK, 0, 0), lookahead = LK)
+cM30_W = request.security(syminfo.tickerid, "30",  kihonCountHere(ANCHOR_WEEK, 0, 0), lookahead = LK)
+
+// Day block — H1 down to the chart's own period
+cH1_D  = request.security(syminfo.tickerid, "60", kihonCountHere(dayMode, InpAnchorHour, InpAnchorMin), lookahead = LK)
+cM30_D = request.security(syminfo.tickerid, "30", kihonCountHere(dayMode, InpAnchorHour, InpAnchorMin), lookahead = LK)
+cM15_D = request.security(syminfo.tickerid, "15", kihonCountHere(dayMode, InpAnchorHour, InpAnchorMin), lookahead = LK)
+cM5_D  = request.security(syminfo.tickerid, "5",  kihonCountHere(dayMode, InpAnchorHour, InpAnchorMin), lookahead = LK)
+
+// The nested M1 count, and the hour it restarted at
+[cM1_N, segNo] = request.security(syminfo.tickerid, "1",
+     kihonNestedM1(dayMode, InpAnchorHour, InpAnchorMin, InpKihonCompound), lookahead = LK)
+
+// Inside a kihon H4, and inside a kihon H1
+sM15_H4 = request.security(syminfo.tickerid, "15", kihonSinceHere("240"), lookahead = LK)
+sM5_H4  = request.security(syminfo.tickerid, "5",  kihonSinceHere("240"), lookahead = LK)
+sM1_H4  = request.security(syminfo.tickerid, "1",  kihonSinceHere("240"), lookahead = LK)
+sM5_H1  = request.security(syminfo.tickerid, "5",  kihonSinceHere("60"),  lookahead = LK)
+sM1_H1  = request.security(syminfo.tickerid, "1",  kihonSinceHere("60"),  lookahead = LK)
+
+// The count on the CHART's own timeframe, for the marks. No request needed -
+// this is the context the script already runs in.
+cChart = InpShowCount ? kihonCountHere(anchorMode, InpAnchorHour, InpAnchorMin) : 0
+
+// Block anchors, for the titles and the span-cap check.
+yearOpen  = timestamp(syminfo.timezone, year(timenow, syminfo.timezone), 1, 1, 0, 0)
+monthOpen = timestamp(syminfo.timezone, year(timenow, syminfo.timezone),
+     month(timenow, syminfo.timezone), 1, 0, 0)
+weekOpen = time("W")
+dayOpen  = time("D")
+h4Open   = time("240")
+h1Open   = time("60")
+
+// Period lengths, resolved once. The panel compares by LENGTH rather than by
+// position in a list, so a non-standard chart period lands where its length
+// puts it instead of falling through.
+SEC_M1  = timeframe.in_seconds("1")
+SEC_M5  = timeframe.in_seconds("5")
+SEC_M15 = timeframe.in_seconds("15")
+SEC_M30 = timeframe.in_seconds("30")
+SEC_H1  = timeframe.in_seconds("60")
+SEC_H4  = timeframe.in_seconds("240")
+SEC_D1  = timeframe.in_seconds("D")
+SEC_W1  = timeframe.in_seconds("W")
+SEC_MN1 = timeframe.in_seconds("M")
+chartSecs = timeframe.in_seconds()
+
+// MetaTrader's own name for the chart's period, so the countdown reads the way
+// the MQL's does.
+chartTf = chartSecs < 60 ? "S" + str.tostring(chartSecs) :
+     chartSecs < 3600 ? "M" + str.tostring(chartSecs / 60) :
+     chartSecs < 86400 ? "H" + str.tostring(chartSecs / 3600) :
+     chartSecs == 86400 ? "D1" : chartSecs < 2592000 ? "W1" : "MN1"
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  Formatting
+// ═════════════════════════════════════════════════════════════════════════════
+
+pad2(n) =>
+    (n < 10 ? "0" : "") + str.tostring(n)
+
+// A span of seconds in units that suit its size: mm:ss under an hour, hh:mm:ss
+// above it, and days once past one. The candle countdown and the session timer
+// both format through here, so M15 reads 14:59 while an hour on the chart
+// reads 01:00:00.
+hms(secs) =>
+    s0 = math.max(0, secs)
+    d  = int(s0 / 86400)
+    s1 = s0 - d * 86400
+    h  = int(s1 / 3600)
+    s2 = s1 - h * 3600
+    m  = int(s2 / 60)
+    s3 = s2 - m * 60
+    d > 0 ? str.tostring(d) + "d " + pad2(h) + ":" + pad2(m) + ":" + pad2(s3) :
+      h > 0 ? pad2(h) + ":" + pad2(m) + ":" + pad2(s3) : pad2(m) + ":" + pad2(s3)
+
+// Whole levels print without decimals, so a scale 1 gold level reads 4374
+// rather than 4374.00.
+priceText(p) =>
+    math.abs(p - math.round(p)) < 1e-9 ? str.tostring(int(math.round(p))) :
+      str.tostring(p, format.mintick)
+
+
+
+// The tail of a panel row: the count's standing against the nearest kihon
+// suchi number, and the colour that standing earns.
+//
+// "no data" and "too far" are different answers. The first means the history
+// is not there to count; the second means the count was refused because the
+// anchor is further back than KIHON_SPAN_CAP periods, where the exact figure
+// would cost a large history load to say something "past 257" already says.
+rowTail(c, tooFar) =>
+    tail = ""
+    col = InpPanelColor
+    if tooFar
+        tail := "too far"                      // refused, and it will stay refused
+    else if c <= 0
+        tail := "no data"
+    else
+        off = kihonOffset(c, InpKihonCompound)
+        mag = math.abs(off)
+        if off == 0
+            // "KS" rather than the whole word. It is the only thing in the row
+            // that repeats, and shouting it in a column of counts made the
+            // numbers - which are the reading - the quieter half.
+            tail := "KS"
+            col := InpPanelHit
+        else if mag <= InpPanelNearTol
+            // The sign reads the way the chart does: "-2" is two candles short
+            // of a number, "+2" two candles past one.
+            tail := "KS " + (off > 0 ? "+" : "-") + str.tostring(mag)
+            col := InpPanelNear
+        else
+            // Past the last number there is nothing left to count to, so say
+            // that rather than print a countdown to nowhere. The last number is
+            // the last of the ACTIVE list: with the compounds switched off the
+            // series ends at 26, not at 257.
+            nx = kihonNext(c, InpKihonCompound)
+            tail := nx == 0 ? "past " + str.tostring(kihonLast(InpKihonCompound)) :
+                 str.tostring(nx) + " in " + str.tostring(nx - c)
+    [tail, col]
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  Panel rows
+//
+//  Built into parallel arrays the way the MQL builds its string and colour
+//  arrays, then written into one table at the end. Pine passes arrays by
+//  reference, so these push straight into the caller's buffers.
+// ═════════════════════════════════════════════════════════════════════════════
+
+KP_MAX_ROWS = 24
+
+// One row onto the end, or nothing if the panel is already full.
+pushRow(mk, tf, ct, tl, cl, m, t, c, l, col) =>
+    if array.size(mk) < KP_MAX_ROWS
+        array.push(mk, m)
+        array.push(tf, t)
+        array.push(ct, c)
+        array.push(tl, l)
+        array.push(cl, col)
+
+// A spacer. It reserves a row and draws nothing, which is the gap between
+// blocks.
+pushGap(mk, tf, ct, tl, cl) =>
+    pushRow(mk, tf, ct, tl, cl, "", "", "", "", InpPanelColor)
+
+// A block title: what, then the open everything under it counts from.
+pushTitle(mk, tf, ct, tl, cl, title, anchorMs, dateOnly, col) =>
+    when = na(anchorMs) ? "-" :
+         str.format_time(anchorMs, dateOnly ? "yyyy.MM.dd" : "HH:mm", syminfo.timezone)
+    pushRow(mk, tf, ct, tl, cl, "", title, "", "from " + when, col)
+
+// One counted row: the marker for the chart's own timeframe, the name, the
+// count, and what it owes the next number. The marker is decided by period
+// LENGTH rather than by name, so a broker's non-standard period still marks
+// itself correctly.
+pushCount(mk, tf, ct, tl, cl, name, secs, c, anchorMs) =>
+    far = secs > 0 and not na(anchorMs) and
+         (timenow - anchorMs) / 1000 / secs > KIHON_SPAN_CAP
+    [tail, col] = rowTail(c, far)
+    pushRow(mk, tf, ct, tl, cl, secs == chartSecs ? ">" : "", name,
+         c > 0 ? str.tostring(c) : "-", tail, col)
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  Drawing
+// ═════════════════════════════════════════════════════════════════════════════
+
+var gLines  = array.new_line()
+var gLabels = array.new_label()
+
+var mkA  = array.new_string()
+var tfA  = array.new_string()
+var ctA  = array.new_string()
+var tlA  = array.new_string()
+var clA  = array.new_color()
+var smkA = array.new_string()
+var stfA = array.new_string()
+var sctA = array.new_string()
+var stlA = array.new_string()
+var sclA = array.new_color()
+
+// Both blocks live in one table: same top edge, one spacer column between
+// them. Pine pins a table to one of nine positions rather than to a pixel
+// offset, so Corner and "Centre it vertically" survive the port and the X and
+// Y distances do not.
+panelPos = InpPanelCorner == "Left upper" ?
+         (InpPanelMiddle ? position.middle_left : position.top_left) :
+     InpPanelCorner == "Left lower" ?
+         (InpPanelMiddle ? position.middle_left : position.bottom_left) :
+     InpPanelCorner == "Right upper" ?
+         (InpPanelMiddle ? position.middle_right : position.top_right) :
+         (InpPanelMiddle ? position.middle_right : position.bottom_right)
+
+sessionPos = InpSessionPos == "Top left" ? position.top_left :
+     InpSessionPos == "Top right" ? position.top_right :
+     InpSessionPos == "Bottom left" ? position.bottom_left : position.bottom_right
+
+// Created once and rewritten in place rather than swept and rebuilt, which is
+// the MQL's approach too: there is no window in which the panel is missing,
+// and a steady panel does not flicker.
+var panel = table.new(panelPos, 9, KP_MAX_ROWS,
+     bgcolor = InpPanelBox ? InpPanelBg : color.new(color.black, 100),
+     border_color = InpPanelBox ? InpPanelBorder : color.new(color.black, 100),
+     border_width = 1, frame_color = InpPanelBorder,
+     frame_width = InpPanelBox ? 1 : 0)
+
+var sessionBox = table.new(sessionPos, 1, 1, bgcolor = color.new(color.black, 100))
+
+// The session clock's zero. Pine has no terminal global to keep it across a
+// reload, so this is the moment the script started running on this chart -
+// which, unlike the MetaTrader build, a timeframe change resets.
+var sessionStart   = timenow
+var sessionAlerted = false
+
+if barstate.islast
+    // ── Sweep ────────────────────────────────────────────────────────────────
+    while array.size(gLines) > 0
+        line.delete(array.pop(gLines))
+    while array.size(gLabels) > 0
+        label.delete(array.pop(gLabels))
+
+    array.clear(mkA)
+    array.clear(tfA)
+    array.clear(ctA)
+    array.clear(tlA)
+    array.clear(clA)
+    array.clear(smkA)
+    array.clear(stfA)
+    array.clear(sctA)
+    array.clear(stlA)
+    array.clear(sclA)
+    table.clear(panel, 0, 0, 8, KP_MAX_ROWS - 1)
+
+    // Pine's 500-object ceilings, split between the things that want them. The
+    // kihon marks are few and always drawn; the level lines and labels take
+    // what is left, and the panel reports any label the budget refused rather
+    // than dropping it quietly.
+    labelBudget = 500 - (InpNumberAll ? 300 : 0) - 20
+    labelsDropped = 0
+    tick = syminfo.mintick
+
+    // ── Levels ───────────────────────────────────────────────────────────────
+    //
+    // Collect every ticked grid's window around price, merge levels that land
+    // on the same price under the highest PO3 number, draw.
+    //
+    // Powers of three nest: 27 is a multiple of 9, so every 27 level sits
+    // exactly on a 9 level. Drawing both would stack two objects on one price
+    // with the colour decided by whichever drew last. Instead a level is drawn
+    // ONCE and belongs to the HIGHEST ticked PO3 number that lands on it.
+    // Grids are walked ascending, so a later grid always outranks an earlier
+    // one and ownership comes out order-independent.
+    po3s = array.from(3, 9, 27, 81, 243, 729, 2187, 6561, 19683)
+    ons  = array.from(InpUse_3, InpUse_9, InpUse_27, InpUse_81, InpUse_243,
+         InpUse_729, InpUse_2187, InpUse_6561, InpUse_19683)
+    cols = array.from(InpCol_3, InpCol_9, InpCol_27, InpCol_81, InpCol_243,
+         InpCol_729, InpCol_2187, InpCol_6561, InpCol_19683)
+
+    raws  = array.new_int()
+    owner = array.new_int()
+
+    for s = 0 to array.size(po3s) - 1
+        if array.get(ons, s)
+            po3 = array.get(po3s, s)
+            m0  = po3Index(close, po3, InpScale)
+            for m = m0 - InpEachSide + 1 to m0 + InpEachSide
+                if m > 0                       // zero anchor and negatives are not prices
+                    raw = m * po3
+                    idx = array.indexof(raws, raw)
+                    if idx == -1
+                        if array.size(raws) < 480
+                            array.push(raws, raw)
+                            array.push(owner, s)
+                    else
+                        array.set(owner, idx, s)   // stronger number owns the level
+
+    if array.size(raws) > 0
+        for i = 0 to array.size(raws) - 1
+            raw = array.get(raws, i)
+            s   = array.get(owner, i)
+            po3 = array.get(po3s, s)
+            col = array.get(cols, s)
+            px  = raw / InpScale
+
+            // Width and style follow magnitude, so the bigger numbers read as
+            // the stronger levels: 3/9/27 thin dotted, 81/243 thin solid,
+            // 729/2187 medium, 6561/19683 thick.
+            w   = po3 >= 6561 ? 3 : po3 >= 729 ? 2 : 1
+            sty = po3 <= 27 ? line.style_dotted : line.style_solid
+
+            array.push(gLines, line.new(bar_index - 1, px, bar_index, px,
+                 xloc = xloc.bar_index, extend = extend.both,
+                 color = col, style = sty, width = w))
+
+            // Every label shares one time anchor, so the fine grids can pile
+            // digits on top of each other: 3 puts levels $3 apart, far closer
+            // than a line of text is tall. The threshold thins them - raise it
+            // to label the stronger grids only.
+            if InpShowLabels and po3 >= InpLabelMinPO3
+                if array.size(gLabels) < labelBudget
+                    // The label carries the OWNING PO3 number, so a merged
+                    // level reads as the strongest grid that produced it,
+                    // matching the colour it was given.
+                    array.push(gLabels, label.new(bar_index + InpLabelShift, px,
+                         str.tostring(po3), xloc = xloc.bar_index,
+                         style = label.style_label_right,
+                         color = color.new(color.black, 100), textcolor = col,
+                         size = InpFontSize,
+                         tooltip = priceText(px) + "   " + str.tostring(po3) +
+                              " x " + str.tostring(int(raw / po3))))
+                else
+                    labelsDropped := labelsDropped + 1
+
+    // ── The count marked on the chart ────────────────────────────────────────
+    //
+    // Anchored to each candle's own time and to that candle's low, so the
+    // numbers sit clear of the body rather than across it.
+    if InpShowCount and cChart > 0
+        aShift = cChart - 1                    // candle 1 lives this far back
+
+        if InpMarkOpen and aShift >= 0 and aShift < 2000 and aShift <= bar_index
+            b = bar_index - aShift
+            array.push(gLines, line.new(b, low[aShift], b, high[aShift],
+                 xloc = xloc.bar_index, extend = extend.both,
+                 color = InpOpenColor, style = line.style_dotted, width = 1))
+            array.push(gLabels, label.new(b, low[aShift] - InpKihonGapPts * tick,
+                 "1", xloc = xloc.bar_index, style = label.style_label_up,
+                 color = color.new(color.black, 100), textcolor = InpOpenColor,
+                 size = InpKihonSize))
+
+        if InpMarkKihon
+            lastK = InpKihonCompound ? KIHON_COUNT : KIHON_SIMPLE
+            for i = 0 to lastK - 1
+                k = array.get(KIHON, i)
+                if k > cChart                  // not reached yet
+                    break
+                back = aShift - (k - 1)
+                if back >= 0 and back < 2000 and back <= bar_index
+                    kcol = i < KIHON_SIMPLE ? InpKihonSimple : InpKihonComp
+                    b = bar_index - back
+                    if InpKihonLines
+                        // Dotted and dimmed: a time marker that hides the
+                        // candle it marks has defeated itself, and Pine cannot
+                        // put a line behind the candles the way MT5 can.
+                        array.push(gLines, line.new(b, low[back], b, high[back],
+                             xloc = xloc.bar_index, extend = extend.both,
+                             color = color.new(kcol, 65),
+                             style = line.style_dotted, width = 1))
+                    array.push(gLabels, label.new(b,
+                         low[back] - InpKihonGapPts * tick, str.tostring(k),
+                         xloc = xloc.bar_index, style = label.style_label_up,
+                         color = color.new(color.black, 100), textcolor = kcol,
+                         size = InpKihonSize,
+                         tooltip = "candle " + str.tostring(k)))
+
+        // Plain numbers on the rest. Drawn after the kihon marks and skipping
+        // them, so a kihon candle keeps its own colour instead of being
+        // overwritten by a neutral label of the same number. A whole day of M1
+        // is 1440 labels, so only the most recent run is numbered.
+        if InpNumberAll
+            firstN = cChart > 300 ? cChart - 300 + 1 : 1
+            for k = firstN to cChart
+                skip = (k == 1 and InpMarkOpen) or
+                     (InpMarkKihon and kihonIs(k, InpKihonCompound))
+                back = aShift - (k - 1)
+                if not skip and back >= 0 and back < 2000 and
+                     back <= bar_index and array.size(gLabels) < 495
+                    array.push(gLabels, label.new(bar_index - back,
+                         low[back] - InpKihonGapPts * tick, str.tostring(k),
+                         xloc = xloc.bar_index, style = label.style_label_up,
+                         color = color.new(color.black, 100),
+                         textcolor = InpPanelColor, size = size.tiny))
+
+    // ── The countdown on the developing candle ───────────────────────────────
+    //
+    // Anchored to the last bar and to the current price, so the text travels
+    // with the candle as the chart scrolls and rides price as it moves. Past
+    // the last bar it reads rightwards into the empty space; at or behind it
+    // the text ends at the anchor, which keeps it on screen.
+    if InpShowClock
+        left = int((time_close - timenow) / 1000)
+        array.push(gLabels, label.new(bar_index + InpClockShift,
+             close + InpClockGapPts * tick, chartTf + "  " + hms(left),
+             xloc = xloc.bar_index,
+             style = InpClockShift > 0 ? label.style_label_left :
+                  label.style_label_right,
+             color = color.new(color.black, 100), textcolor = InpClockColor,
+             size = InpClockSize))
+
+    // ── The count panel ──────────────────────────────────────────────────────
+    //
+    // A ladder of calendar periods, each counted in the candles that divide it.
+    // Every block carries its OWN anchor, which is the whole point - a week
+    // count from the day open would read 1 forever.
+    //
+    // M30 sits on the week because that is where it fits: a trading week is 240
+    // M30 candles, so the count runs through eleven of the twelve numbers and
+    // stops just short of 257 without ever running off the end of the list.
+    if InpShowPanel
+        if InpShowYear
+            pushTitle(mkA, tfA, ctA, tlA, clA, "Year", yearOpen, true, InpPanelColor)
+            pushCount(mkA, tfA, ctA, tlA, clA, "MN1", SEC_MN1, cMN1_Y, yearOpen)
+            pushCount(mkA, tfA, ctA, tlA, clA, "W1",  SEC_W1,  cW1_Y,  yearOpen)
+            pushCount(mkA, tfA, ctA, tlA, clA, "D1",  SEC_D1,  cD1_Y,  yearOpen)
+
+        if InpShowMonth
+            if array.size(mkA) > 0
+                pushGap(mkA, tfA, ctA, tlA, clA)
+            pushTitle(mkA, tfA, ctA, tlA, clA, "Month", monthOpen, true, InpPanelColor)
+            pushCount(mkA, tfA, ctA, tlA, clA, "D1", SEC_D1, cD1_M, monthOpen)
+            pushCount(mkA, tfA, ctA, tlA, clA, "H4", SEC_H4, cH4_M, monthOpen)
+            pushCount(mkA, tfA, ctA, tlA, clA, "H1", SEC_H1, cH1_M, monthOpen)
+
+        if InpShowWeek
+            if array.size(mkA) > 0
+                pushGap(mkA, tfA, ctA, tlA, clA)
+            pushTitle(mkA, tfA, ctA, tlA, clA, "Week", weekOpen, true, InpPanelColor)
+            pushCount(mkA, tfA, ctA, tlA, clA, "H4",  SEC_H4,  cH4_W,  weekOpen)
+            pushCount(mkA, tfA, ctA, tlA, clA, "H1",  SEC_H1,  cH1_W,  weekOpen)
+            pushCount(mkA, tfA, ctA, tlA, clA, "M30", SEC_M30, cM30_W, weekOpen)
+
+        if InpShowDay
+            if array.size(mkA) > 0
+                pushGap(mkA, tfA, ctA, tlA, clA)
+            // Titled "Sess" when the chart's anchor is a custom session time,
+            // so the panel says which open it is counting from.
+            pushTitle(mkA, tfA, ctA, tlA, clA, daySess ? "Sess" : "Day", dayOpen,
+                 false, InpPanelColor)
+
+            // H1 down to the CHART's own period and no finer: detail finer than
+            // the candles in front of you is a count of something you cannot
+            // see. H1 is always kept, so an H4 or daily chart still gets the
+            // hour count rather than an empty block.
+            pushCount(mkA, tfA, ctA, tlA, clA, "H1", SEC_H1, cH1_D, dayOpen)
+            if SEC_M30 >= chartSecs
+                pushCount(mkA, tfA, ctA, tlA, clA, "M30", SEC_M30, cM30_D, dayOpen)
+            if SEC_M15 >= chartSecs
+                pushCount(mkA, tfA, ctA, tlA, clA, "M15", SEC_M15, cM15_D, dayOpen)
+            if SEC_M5 >= chartSecs
+                pushCount(mkA, tfA, ctA, tlA, clA, "M5", SEC_M5, cM5_D, dayOpen)
+
+            // The nested M1 row, on every period - it is the one row carrying
+            // information none of the others do. The label carries the hour it
+            // restarted at, because the count alone cannot tell you which phase
+            // of the day it is measuring.
+            pushCount(mkA, tfA, ctA, tlA, clA,
+                 "M1@" + (segNo > 0 ? str.tostring(segNo) : "-"),
+                 SEC_M1, cM1_N, dayOpen)
+
+    // Pine's own limit, said out loud. It only appears when the budget actually
+    // refused a label, so a chart inside the budget never carries the row.
+    if labelsDropped > 0
+        if array.size(mkA) > 0
+            pushGap(mkA, tfA, ctA, tlA, clA)
+        pushRow(mkA, tfA, ctA, tlA, clA, "", "labels", str.tostring(labelsDropped),
+             "over budget", InpPanelNear)
+
+    // ── The segment block ────────────────────────────────────────────────────
+    //
+    // When an H4 or an H1 count stands ON a number, the candle carrying that
+    // number IS a kihon candle, and it is one for its whole length. The panel
+    // beside it says that hour is due a turn; it cannot say where in the hour
+    // you are. So this block counts the candles INSIDE that candle, from its
+    // open.
+    //
+    // An H4 is checked against the month and week anchors, an H1 against the
+    // month, week and day. H4 gets no day anchor because a trading day holds
+    // six H4 candles, so a day-anchored H4 count stops at 6 and could never
+    // reach 9. These are read from the counts directly, so the block says the
+    // same thing whether or not the row that would show the hit is switched on.
+    //
+    // The section reads "none" most of the time and keeps its title rather than
+    // vanishing, so the space stays accounted for.
+    if InpShowSeg
+        pushRow(smkA, stfA, sctA, stlA, sclA, "", "Kihon Suchi segments", "", "",
+             InpPanelColor)
+
+        h4Hit = InpSegH4 and
+             ((cH4_M > 0 and kihonIs(cH4_M, InpKihonCompound)) or
+              (cH4_W > 0 and kihonIs(cH4_W, InpKihonCompound)))
+        h1Hit = InpSegH1 and
+             ((cH1_M > 0 and kihonIs(cH1_M, InpKihonCompound)) or
+              (cH1_W > 0 and kihonIs(cH1_W, InpKihonCompound)) or
+              (cH1_D > 0 and kihonIs(cH1_D, InpKihonCompound)))
+
+        // Everything in the block counts from the candle, and nothing from a
+        // calendar. The header reads "H4 from 08:00" and every row under it is
+        // measured from that open. It is in the hit colour because the candle
+        // it names IS the hit; the rows below colour themselves on their own
+        // counts, against the same numbers and the same tolerance as every
+        // other row.
+        //
+        // Which rows appear is decided by what fits - a row is shown only when
+        // at least one kihon number can be reached inside the candle. Sixteen
+        // M15 candles fit in an H4, so 9 is in reach; the four that fit in an
+        // H1 could never read anything but a countdown, which is why M15 is in
+        // the H4 box and not the H1 box. Same rule that keeps the day anchor
+        // off the H4 count, applied at the other end of the nesting.
+        first = array.get(KIHON, 0)
+
+        if h4Hit
+            pushTitle(smkA, stfA, sctA, stlA, sclA, "H4", h4Open, false, InpPanelHit)
+            if SEC_H4 / SEC_M15 >= first
+                pushCount(smkA, stfA, sctA, stlA, sclA, "M15", SEC_M15, sM15_H4, h4Open)
+            if SEC_H4 / SEC_M5 >= first
+                pushCount(smkA, stfA, sctA, stlA, sclA, "M5", SEC_M5, sM5_H4, h4Open)
+            if SEC_H4 / SEC_M1 >= first
+                pushCount(smkA, stfA, sctA, stlA, sclA, "M1", SEC_M1, sM1_H4, h4Open)
+
+        if h1Hit
+            // The gap goes in only when an H4 block came first, so a lone H1
+            // block is not pushed away from the title by an empty row.
+            if h4Hit
+                pushGap(smkA, stfA, sctA, stlA, sclA)
+            pushTitle(smkA, stfA, sctA, stlA, sclA, "H1", h1Open, false, InpPanelHit)
+            // No M15 row here, and this is where the rule bites: SEC_H1 /
+            // SEC_M15 is 4, short of the first number, so an M15 count inside
+            // an hour could never read anything but a countdown. It is not
+            // requested at all rather than requested and hidden.
+            if SEC_H1 / SEC_M5 >= first
+                pushCount(smkA, stfA, sctA, stlA, sclA, "M5", SEC_M5, sM5_H1, h1Open)
+            if SEC_H1 / SEC_M1 >= first
+                pushCount(smkA, stfA, sctA, stlA, sclA, "M1", SEC_M1, sM1_H1, h1Open)
+
+        if not h4Hit and not h1Hit
+            pushRow(smkA, stfA, sctA, stlA, sclA, "", "none", "", "", InpPanelColor)
+
+    // ── Both blocks into the one table ───────────────────────────────────────
+    nMain = array.size(mkA)
+    nSeg  = array.size(smkA)
+    rows  = math.max(nMain, nSeg)
+
+    if rows > 0
+        for r = 0 to rows - 1
+            if r < nMain
+                c = array.get(clA, r)
+                table.cell(panel, 0, r, array.get(mkA, r), text_color = c,
+                     text_size = InpPanelSize, text_halign = text.align_left)
+                table.cell(panel, 1, r, array.get(tfA, r), text_color = c,
+                     text_size = InpPanelSize, text_halign = text.align_left)
+                table.cell(panel, 2, r, array.get(ctA, r), text_color = c,
+                     text_size = InpPanelSize, text_halign = text.align_right)
+                table.cell(panel, 3, r, array.get(tlA, r), text_color = c,
+                     text_size = InpPanelSize, text_halign = text.align_left)
+            if nSeg > 0
+                // The gap between the two blocks. Pine sizes a table column to
+                // its widest cell, so a column of spaces is the pixel gap.
+                table.cell(panel, 4, r, "   ", text_size = InpPanelSize)
+            if r < nSeg
+                c = array.get(sclA, r)
+                table.cell(panel, 5, r, array.get(smkA, r), text_color = c,
+                     text_size = InpPanelSize, text_halign = text.align_left)
+                table.cell(panel, 6, r, array.get(stfA, r), text_color = c,
+                     text_size = InpPanelSize, text_halign = text.align_left)
+                table.cell(panel, 7, r, array.get(sctA, r), text_color = c,
+                     text_size = InpPanelSize, text_halign = text.align_right)
+                table.cell(panel, 8, r, array.get(stlA, r), text_color = c,
+                     text_size = InpPanelSize, text_halign = text.align_left)
+
+    // ── The session timer ────────────────────────────────────────────────────
+    //
+    // Wall-clock time this chart has been open. It counts through closed
+    // markets and weekends, since the point is screen time, not session time,
+    // and turns red once a set number of minutes is up.
+    if InpShowSession
+        elapsed = int((timenow - sessionStart) / 1000)
+        over = InpSessionLimit > 0 and elapsed >= InpSessionLimit * 60
+        table.cell(sessionBox, 0, 0, "On chart  " + hms(elapsed),
+             text_color = over ? InpSessionOver : InpSessionColor,
+             text_size = InpSessionSize)
+    else
+        table.clear(sessionBox, 0, 0)
+
+// One alert the moment the screen-time budget is spent, guarded so it fires
+// once for the life of the script.
+if InpShowSession and InpSessionLimit > 0 and not sessionAlerted and
+     (timenow - sessionStart) / 1000 >= InpSessionLimit * 60
+    sessionAlerted := true
+    alert(syminfo.ticker + ": " + str.tostring(InpSessionLimit) +
+         " minutes on the chart.", alert.freq_once_per_bar)
+
+// A candle standing on a kihon number on the chart's own timeframe.
+//
+// A caution: the count is arithmetic, not a signal. It says where a turn is
+// DUE, never that one is happening and never which way. Nothing here acts on
+// these numbers.
+kihonNow = InpShowCount and cChart > 0 and kihonIs(cChart, InpKihonCompound)
+alertcondition(kihonNow, "Kihon suchi candle",
+     "Candle count has reached a kihon suchi number")

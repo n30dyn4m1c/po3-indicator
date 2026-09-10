@@ -5,7 +5,7 @@
 [![Language](https://img.shields.io/badge/Language-MQL5-orange.svg)](https://www.mql5.com/)
 [![Also](https://img.shields.io/badge/Also-Pine%20Script%20v5-green.svg)](https://www.tradingview.com/pine-script-docs/)
 
-**MetaTrader 5 indicator that reads gold in price and in time: Power of Three (PO3) support and resistance levels, with a checkbox per PO3 number from 3 to 19683, and Ichimoku kihon suchi counts of the candles since the year, month, week and day opened. Ships with a TradingView Pine companion and an Expert Advisor that scalps rejections of the 9 and 27 grids.**
+**MetaTrader 5 indicator that reads gold in price and in time: Power of Three (PO3) support and resistance levels, with a checkbox per PO3 number from 3 to 19683, and Ichimoku kihon suchi counts of the candles since the year, month, week and day opened. Ships as a TradingView Pine v5 port of the same indicator, and with an Expert Advisor that scalps rejections of the 9 and 27 grids.**
 
 **Price.** Levels are multiples of powers of three — 3, 9, 27, 81, 243, 729,
 2187, 6561, 19683 — drawn around current price. Nothing is fitted, optimised or
@@ -106,14 +106,19 @@ PO3_Core.mqh            Shared PO3 level maths, used by the EA
 PO3_Kihon.mqh           Kihon suchi numbers and the candle count, used by the indicator
 PO3_Levels.mq5          MetaTrader 5 indicator, whole-number PO3 grids by checkbox
 PO3_Scalper.mq5         MetaTrader 5 Expert Advisor, scalps rejections of the 9 and 27 grids
-PO3_Gold_Levels.pine    TradingView Pine v5, fixed gold level list from the workbook
+PO3_Levels.pine         TradingView Pine v5, a port of the MT5 indicator with both headers inlined
 ```
 
-**The two draw different level sets, by design.** `PO3_Levels.mq5` draws every
-multiple of the PO3 numbers you tick, following price. `PO3_Gold_Levels.pine`
-draws 34 fixed decimal levels transcribed from the source workbook's gold
-sheet, plus that range's equilibrium and premium/discount shading. Both are
-faithful to the same model; loading both will not give you the same lines.
+**`PO3_Levels.pine` is the same indicator, not a companion to it.** It draws
+the same grids from the same arithmetic and counts the same candles, so the two
+charts agree line for line. Pine has no `#include`, so it carries its own copy
+of both headers inlined rather than referencing them — which is the one place
+the repo has the same maths written twice, and the reason the Pine file opens
+by naming what it is a port of.
+
+An earlier Pine file, `PO3_Gold_Levels.pine`, drew a fixed list of 34 decimal
+levels transcribed from the workbook's gold sheet instead of computing them. It
+was replaced by the port and is in the git history if you want it back.
 
 ## Install
 
@@ -149,7 +154,10 @@ chart and re-adding it, since MT5 caches inputs per chart.
 
 **TradingView**
 
-Open Pine Editor, paste `PO3_Gold_Levels.pine`, save, then Add to chart.
+Open Pine Editor, paste `PO3_Levels.pine`, save, then Add to chart. There is no
+second file to copy: Pine has no `#include`, so both headers are already inside
+it. What the platform changes is covered under
+[PO3 Levels on TradingView](#po3-levels-on-tradingview).
 
 ## PO3 Levels (indicator)
 
@@ -763,6 +771,76 @@ Test on a demo account first. Every rejected setup is logged with the reason it
 was passed on, so a track that takes no trades can be told apart from one that
 is never being offered any.
 
+## PO3 Levels on TradingView
+
+`PO3_Levels.pine` is a Pine v5 port of `PO3_Levels.mq5`. Same grids, same
+merge, same counts, same panel — it is the indicator, on the other platform,
+not a reduced companion to it. Pine has no `#include`, so `PO3_Kihon.mqh` and
+`PO3_Core.mqh` are inlined at the top of the file as their own sections, kept
+whole and kept first so the port can be read against the originals function by
+function.
+
+The inputs mirror the MT5 ones group for group, so anything in
+[Inputs](#inputs) above applies here too, with the exceptions below.
+
+### What the platform changes
+
+Every one of these is a Pine limit rather than a decision, and each is stated
+in the file's own header as well:
+
+| | MetaTrader 5 | TradingView |
+|---|---|---|
+| Drawing budget | No practical ceiling | 500 lines and 500 labels per script |
+| *Levels each side of price* | 1–100 | **1–25**, so nine grids fit in 450 lines |
+| Lines behind the candles | An input | No z-order in Pine; not offered |
+| Panel placement | Corner plus a pixel X and Y | One of nine table positions |
+| The two blocks | Two bordered blocks, measured apart | One table, a spacer column between |
+| Text size | 5–24 points | tiny / small / normal / large / huge |
+| Countdown refresh | Once a second, off `OnTimer` | On a tick — a quiet market freezes it |
+| Session timer | Survives a timeframe change | Restarts on one |
+| Server time | The broker's clock | The exchange timezone |
+| The Experts log | Line counts per grid, resolved sizes | No log; the panel carries what it can |
+
+**The session timer is the one real loss.** MT5 keeps its start time in a
+terminal global variable keyed by the chart, which is what lets it survive the
+teardown a period change triggers. Pine has nothing equivalent, so switching
+timeframe restarts the clock — the exact thing the MT5 version goes out of its
+way to prevent.
+
+**The label budget is spent, not silently exceeded.** Level labels get whatever
+Pine's 500 leaves after the kihon marks, which is 480 normally and 180 with
+*Number every candle* switched on. If a setting asks for more than that, the
+panel grows a `labels N over budget` row rather than dropping them quietly.
+Raising *Label only levels of PO3 >=* is the way to clear it.
+
+### How the counts are made
+
+MT5 asks the terminal "how many bars of timeframe T lie between the anchor and
+now" and gets an answer from its own history. Pine has no such call, so each
+count is computed **in the context of the timeframe being counted** — bars
+since the anchor condition last fired — and pulled back with
+`request.security`. `ta.barssince` returns 0 on the bar the condition fired, so
+`+ 1` gives the same inclusive count, and the anchor candle is candle 1 exactly
+as it is in the MQL.
+
+That puts nineteen `request.security` calls at the top of the file, all at
+global scope and all unconditional, because Pine will not have them inside an
+`if` or a loop. A row you have switched off is therefore still counted and
+simply not shown.
+
+`KihonSegmentStart()` is the one header function that could not survive as a
+function. It works by indexing an arbitrary bar of another timeframe, which
+Pine cannot do, so the nested M1 count is instead tracked forward on the M1
+series itself — an hour counter that resets on the day open and a minute
+counter that resets whenever that hour counter lands on a kihon number. Same
+rule, same output, different shape.
+
+### What it adds
+
+One alert condition, **Kihon suchi candle**, fires when the count on the
+chart's own timeframe reaches a kihon number. MT5 has no equivalent because the
+indicator there raises no alerts at all. It is still only a count: it says a
+turn is due, never that one is happening and never which way.
 
 ## Notes
 
@@ -782,12 +860,17 @@ is never being offered any.
 - The source workbook and course PDF are not redistributed here. Every level
   they contain is reproduced by the code.
 - The EA takes its levels from `PO3_Core.mqh`, so it cannot end up trading a
-  different grid from the one the indicator draws. The indicator still carries
-  its own copy of the maths and is untouched by the EA.
+  different grid from the one the indicator draws. The MT5 indicator still
+  carries its own copy of the maths and is untouched by the EA.
+- **Three copies of the level maths now exist**: `PO3_Core.mqh` for the EA,
+  `PO3_Levels.mq5`'s own, and the inlined block in `PO3_Levels.pine`. Only the
+  first two can share a file — Pine has no `#include` — so the Pine copy is the
+  one that can drift. It is a dozen lines and they are checked against the
+  header they came from; change one and change the other.
 
 ## Disclaimer
 
-For educational and analytical use. `PO3_Levels.mq5` and `PO3_Gold_Levels.pine`
+For educational and analytical use. `PO3_Levels.mq5` and `PO3_Levels.pine`
 draw chart levels, not trade signals, and place no orders.
 
 `PO3_Scalper.mq5` does place orders and manage positions. It is a starting
