@@ -73,11 +73,15 @@ decided by whichever drew last.
 
 Instead each price is drawn once and belongs to the **highest** ticked PO3
 number that lands on it. Gold at 4374 divides by every number from 3 to 2187,
-so it is drawn and labelled as 2187. With 9 and 27 ticked at that price,
-twelve candidate lines merge into ten distinct prices:
+so it is drawn and labelled as 2187.
 
-| Price | Produced by | Drawn as |
-|-------|-------------|----------|
+Each ticked grid gets its own window of *Levels each side of price* above and
+below, so at the default of 3 both the 9 and the 27 grid offer six lines. With
+both ticked at 4374, twelve candidates merge into ten distinct prices:
+
+| Price | In the window of | Drawn as |
+|-------|------------------|----------|
+| 4320 | 27 | 27 |
 | 4347 | 27 | 27 |
 | 4356 | 9 | 9 |
 | 4365 | 9 | 9 |
@@ -85,6 +89,12 @@ twelve candidate lines merge into ten distinct prices:
 | 4383 | 9 | 9 |
 | 4392 | 9 | 9 |
 | 4401 | 9 and 27 | 27 |
+| 4428 | 27 | 27 |
+| 4455 | 27 | 27 |
+
+4347 and 4428 are multiples of 9 as well, but they fall outside the 9 grid's
+own window, so only the 27 grid offers them — a grid's window is its own, and
+the merge only settles prices two windows both reach.
 
 Ownership is order-independent — a number gives the same result whichever
 checkbox order it is registered in.
@@ -141,7 +151,9 @@ chart and re-adding it, since MT5 caches inputs per chart.
 
 Open Pine Editor, paste `PO3_Gold_Levels.pine`, save, then Add to chart.
 
-## Inputs (MetaTrader 5)
+## PO3 Levels (indicator)
+
+### Inputs
 
 | Input | Default | Notes |
 |-------|---------|-------|
@@ -150,7 +162,7 @@ Open Pine Editor, paste `PO3_Gold_Levels.pine`, save, then Add to chart.
 | Draw lines behind the candles | `false` | Fine grids sit where the candles are, so the default draws in front |
 | Write the PO3 number on each line | `true` | |
 | Label only levels of PO3 >= | `3` | Everything is labelled; every label shares one time anchor, so raise this if the fine grids stack digits |
-| Label text size | `7` | |
+| Label text size | `7` | Clamped to 5–20 |
 | Label shift right, in bars | `0` | `0` anchors at the last bar, always on screen |
 | Show 3 … Show 19683 | all on | One checkbox and one colour per PO3 number; untick the fine grids for a quieter chart |
 | Show time left on the current candle | `true` | Printed beside the developing candle, level with price |
@@ -175,14 +187,14 @@ Open Pine Editor, paste `PO3_Gold_Levels.pine`, save, then Add to chart.
 | Vertical line on each marked candle | `true` | Drawn behind the candles |
 | 9, 17, 26 — colour | `clrDeepSkyBlue` | The simple numbers |
 | 33 and up — colour | `clrMediumOrchid` | The compound numbers |
-| Marker text size | `8` | |
+| Marker text size | `8` | Clamped to 5–20 |
 | Marker offset from the candle low, in points | `0` | Positive pushes the number further below the low |
 | Number every candle, not just the kihon ones | `false` | Capped at the most recent 300 candles |
 | Show the count panel | `true` | |
 | Year block — MN1, W1, D1 | `true` | Months, weeks and trading days since 1 January |
 | Month block — D1, H4, H1 | `true` | Since the 1st |
 | Week block — H4, H1, M30 | `true` | Since the week open |
-| Day block — H1 to chart | `true` | Runs from H1 down to the chart's own period, plus the nested M1 row |
+| Day block — H1 to chart | `true` | Runs from H1 down to the chart's own period, plus the nested M1 row. Titled `Sess` and anchored to *Count from* when that is the custom time |
 | Corner (panel) | `CORNER_LEFT_UPPER` | Rows stack downward from an upper corner, upward from a lower one |
 | Centre it vertically | `true` | Worked out from chart height and row count; ignores Y |
 | Distance from corner, X / Y (panel) | `12` / `20` | Y applies only when *Centre it vertically* is off |
@@ -331,6 +343,12 @@ Day    from 00:00
 Every block carries **its own anchor** — a week counted from the day open would
 read 1 forever. `>` flags the chart's own timeframe, and blocks can be switched
 off individually.
+
+The one block that listens to *Count from* is the day block, and only when that
+input is set to the custom time of day. Then it counts from your session open
+rather than the broker's midnight, and its title changes to `Sess` to say so —
+`Sess from 08:00`. On every other setting of *Count from* the block is the
+broker's day, whatever anchor the on-chart marks are using.
 
 **M30 sits on the week** because that is where it fits. A trading week is 240
 M30 candles, so the count runs through eleven of the twelve numbers and stops

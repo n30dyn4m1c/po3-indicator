@@ -30,11 +30,11 @@
 //|  and premium. A 27 level is the stronger of the two and          |
 //|  generally holds its first test, turning into support only once  |
 //|  price has closed decisively above it. That structure is read    |
-//|  and logged on every signal. Two of the three filters that can    |
-//|  act on it are on: trade only toward the equilibrium of the 27    |
-//|  range, and do not fade a 27 level price has just closed          |
-//|  decisively through. The chop veto is left off so its cost can be |
-//|  measured against a run that already has the other two.           |
+//|  and logged on every signal. Two of the three filters that can   |
+//|  act on it are on: trade only toward the equilibrium of the 27   |
+//|  range, and do not fade a 27 level price has just closed         |
+//|  decisively through. The chop veto is left off so its cost can   |
+//|  be measured against a run that already has the other two.       |
 //|                                                                  |
 //|  Levels come from PO3_Core.mqh, the same maths PO3_Levels.mq5    |
 //|  draws with, so the EA cannot end up trading a different grid    |
@@ -222,8 +222,8 @@ bool Beyond(const double a, const double b, const int dir)
 
 //+------------------------------------------------------------------+
 //| The broker's minimum distance between price and a stop or limit. |
-//| Some feeds report zero here and apply a dynamic distance instead, |
-//| so the spread is used as the floor.                              |
+//| Some feeds report zero here and apply a dynamic distance         |
+//| instead, so the spread is used as the floor.                     |
 //+------------------------------------------------------------------+
 double MinStopDist()
   {
