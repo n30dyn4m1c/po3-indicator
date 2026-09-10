@@ -340,8 +340,14 @@ InpLabelMinPO3 = input.int(3, "Label only levels of PO3 >=", minval = 3, maxval 
      "if the fine grids stack digits.")
 InpFontSize    = input.string(size.tiny, "Label text size", group = gLbl,
      options = [size.tiny, size.small, size.normal, size.large, size.huge])
-InpLabelShift  = input.int(0, "Label shift right, in bars", minval = -50, maxval = 400,
-     group = gLbl, tooltip = "0 anchors at the last bar, always on screen.")
+InpLabelShift  = input.int(10, "Label gap right of the last candle, in bars",
+     minval = -50, maxval = 400, group = gLbl,
+     tooltip = "Positive tabs the numbers off the candles into the empty space " +
+     "at the right, level with their own lines and beside the price scale. " +
+     "Raise it to sit closer to the scale - how much room there is comes from " +
+     "the chart's own right margin, which Pine cannot read. 0 or less ends the " +
+     "text at the anchor instead, over the candles, which is the MetaTrader " +
+     "build's default.")
 
 gClk = "Candle countdown"
 InpShowClock   = input.bool(true, "Show time left on the current candle", group = gClk,
@@ -785,9 +791,18 @@ if barstate.islast
                     // The label carries the OWNING PO3 number, so a merged
                     // level reads as the strongest grid that produced it,
                     // matching the colour it was given.
+                    //
+                    // Past the last candle the text reads RIGHTWARDS from the
+                    // anchor, so the gap is the space between the candles and
+                    // the number and the column lines up on its left edge, out
+                    // in the margin beside the price scale. At or behind the
+                    // last candle it ends at the anchor instead, which is what
+                    // keeps it on screen with no right margin to read into -
+                    // the same rule the countdown follows.
                     array.push(gLabels, label.new(bar_index + InpLabelShift, px,
                          str.tostring(po3), xloc = xloc.bar_index,
-                         style = label.style_label_right,
+                         style = InpLabelShift > 0 ? label.style_label_left :
+                              label.style_label_right,
                          color = color.new(color.black, 100), textcolor = col,
                          size = InpFontSize,
                          tooltip = priceText(px) + "   " + str.tostring(po3) +

@@ -799,6 +799,7 @@ in the file's own header as well:
 | Countdown refresh | Once a second, off `OnTimer` | On a tick — a quiet market freezes it |
 | Session timer | Survives a timeframe change | Restarts on one |
 | Server time | The broker's clock | The exchange timezone |
+| Level labels | *Label shift right*, default `0` | *Label gap right of the last candle*, default `10` |
 | The Experts log | Line counts per grid, resolved sizes | No log; the panel carries what it can |
 
 **The session timer is the one real loss.** MT5 keeps its start time in a
@@ -806,6 +807,21 @@ terminal global variable keyed by the chart, which is what lets it survive the
 teardown a period change triggers. Pine has nothing equivalent, so switching
 timeframe restarts the clock — the exact thing the MT5 version goes out of its
 way to prevent.
+
+**The level labels sit out in the right margin.** MT5 anchors them at the last
+bar with the text ending there, so a chart with no shift still shows them. Pine
+defaults to a gap of ten bars instead, which tabs the numbers off the candles
+and into the empty space beside the price scale — each one still level with its
+own line, so the PO3 number and the price the scale is showing read in one
+glance. Past the last candle the text reads rightwards from the anchor, so the
+column lines up on its left edge and the gap is the distance from the candles.
+
+How much room there is to the right is the chart's own right-margin setting,
+which Pine cannot read; the input is measured in bars from the last candle
+because that is the only thing it can measure from. Raise it to sit closer to
+the scale. Set it to `0` or less and the text ends at the anchor over the
+candles, which is the MetaTrader behaviour and the one to use with the right
+margin turned off.
 
 **The label budget is spent, not silently exceeded.** Level labels get whatever
 Pine's 500 leaves after the kihon marks, which is 480 normally and 180 with
