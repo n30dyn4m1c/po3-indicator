@@ -202,7 +202,7 @@ it. What the platform changes is covered under
 | Year block — MN1, W1, D1 | `true` | Months, weeks and trading days since 1 January |
 | Month block — D1, H4, H1 | `true` | Since the 1st |
 | Week block — H4, H1, M30 | `true` | Since the week open |
-| Day block — H1 to chart | `true` | Runs from H1 down to the chart's own period, plus the nested M1 row. Titled `Sess` and anchored to *Count from* when that is the custom time |
+| Day block — H1, M30, M15, M5, M1 | `true` | The whole intraday ladder on every chart period, plus the nested M1 row. Titled `Sess` and anchored to *Count from* when that is the custom time |
 | Corner (panel) | `CORNER_LEFT_UPPER` | Rows stack downward from an upper corner, upward from a lower one |
 | Centre it vertically | `true` | Worked out from chart height and row count; ignores Y |
 | Distance from corner, X / Y (panel) | `12` / `20` | Y applies only when *Centre it vertically* is off |
@@ -345,6 +345,7 @@ Day    from 00:00
   H1       11  KS +2
   M30      21  26 in 5
 > M15      42  KS
+  M5      125  129 in 4
   M1@9    143  172 in 29
 ```
 
@@ -367,12 +368,22 @@ fit of any row in the panel; the week in H4 only reaches 30, using three.
 chart is on, which is what makes them readable across a timeframe change — a
 week is a week in H1 candles whether you are looking at M1 or D1.
 
-**The day block follows the chart.** It runs from H1 down to the chart's own
-period and stops: on M15 you get H1, M30, M15; on M5 that plus M5. Detail finer
-than the candles in front of you is a count of something you cannot see. H1 is
-always kept, so an H4 or daily chart still gets the hour count rather than an
-empty block. The `M1@` row is always there, on every period — it is the one row
-carrying information none of the others do.
+**The day block is fixed too.** It runs the whole intraday ladder — H1, M30,
+M15, M5, then the nested `M1@` row — on every chart period, so a daily chart
+shows the same four counts an M5 chart does.
+
+It used to stop at the chart's own period, on the argument that detail finer
+than the candles in front of you is a count of something you cannot see. That
+was wrong about what the panel is for. The count of M5 candles since the day
+open is the same number whatever period you read it from, and it is often the
+reason to look: an H1 chart showing only its own hour count hides the three
+rows underneath it that say where inside that hour the session has got to. The
+ladder now reads the way the three blocks above it do, which is the point of a
+ladder.
+
+The `M1@` row is the one exception, and it is not a chart-period rule — a plain
+M1 count run across a day is past 257 by breakfast, so that row is always the
+nested one instead. See below.
 
 **A kihon candle is often kihon on several timeframes at once.** The compound
 chain 9 → 17 → 33 → 65 → 129 → 257 is each number doubled less one, and under
@@ -462,6 +473,7 @@ Day    from 00:00
   H1       11  KS +2
   M30      21  26 in 5
 > M15      42  KS
+  M5      125  129 in 4
   M1@9    143  172 in 29
 ```
 

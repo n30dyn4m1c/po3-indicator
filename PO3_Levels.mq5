@@ -149,7 +149,7 @@ input bool             InpShowPanel   = true;               // Show the count pa
 input bool             InpShowYear    = true;               // Year block    - MN1, W1, D1
 input bool             InpShowMonth   = true;               // Month block   - D1, H4, H1
 input bool             InpShowWeek    = true;               // Week block    - H4, H1, M30
-input bool             InpShowDay     = true;               // Day block     - H1 to M1
+input bool             InpShowDay     = true;               // Day block     - H1, M30, M15, M5, M1
 //--- Mid left. The vertical centre is worked out from the chart height and the
 //--- number of rows rather than set as a fixed Y, because both change - the day
 //--- block grows and shrinks with the chart period, and a Y that centred a
@@ -780,15 +780,23 @@ void UpdateSession()
 //--- or D1, and a row that came and went with the chart period could not be
 //--- read across a timeframe change.
 //---
-//--- The day block is the opposite: it runs from H1 down to the CHART's own
-//--- period and stops there, because detail finer than the candles in front of
-//--- you is a count of something you cannot see. See KihonDayList.
+//--- The day block is fixed too, and runs the whole intraday ladder on every
+//--- chart period: H1, M30, M15, M5, then the nested M1 row. It used to stop at
+//--- the chart's own period, on the argument that detail finer than the candles
+//--- in front of you is a count of something you cannot see. That was wrong
+//--- about what the panel is for. The count of M5 candles since the day open is
+//--- the same number whatever period you are looking at it from, and it is
+//--- often the reason to look - an H1 chart that shows only its own hour count
+//--- hides the three rows underneath it that say where inside that hour the
+//--- session has got to. The ladder is now read the same way the year, month
+//--- and week blocks are, which is the point of a ladder.
 //---
 //--- M1 is missing from that ladder on purpose, on every chart period. The M1
 //--- row is ALWAYS the nested one, which restarts at each kihon suchi H1 candle
 //--- rather than running the whole day - see the nested row in UpdatePanel. A
 //--- plain M1 row beside it would read "past 257" from mid-morning on and say
-//--- nothing for the rest of the session.
+//--- nothing for the rest of the session. That is the one row a chart period
+//--- could never have justified either way.
 const ENUM_TIMEFRAMES g_kpYear[3]  = { PERIOD_MN1, PERIOD_W1,  PERIOD_D1 };
 const ENUM_TIMEFRAMES g_kpMonth[3] = { PERIOD_D1,  PERIOD_H4,  PERIOD_H1 };
 const ENUM_TIMEFRAMES g_kpWeek[3]  = { PERIOD_H4,  PERIOD_H1,  PERIOD_M30 };
@@ -1017,35 +1025,6 @@ string PanelRow(const ENUM_TIMEFRAMES tf, const datetime anchor, color &col,
                        (label == "") ? TfNameOf(tf) : label,
                        (c > 0) ? IntegerToString(c) : "-",
                        tail));
-  }
-
-//+------------------------------------------------------------------+
-//| The intraday ladder for this chart: H1 down to the chart's own   |
-//| period, and no finer.                                            |
-//|                                                                  |
-//| Selected by period LENGTH rather than by position in the table,  |
-//| so a broker's non-standard period - M10, M20 - lands in the      |
-//| right place instead of falling through. H1 is always kept: on an |
-//| H4 or daily chart every intraday row would otherwise be finer    |
-//| than the chart and the block would come out empty, when the hour |
-//| count is exactly what you would still want from it there.        |
-//+------------------------------------------------------------------+
-int KihonDayList(ENUM_TIMEFRAMES &out[])
-  {
-   int chart = PeriodSeconds();
-   int n     = 0;
-
-   ArrayResize(out, ArraySize(g_kpDay));
-
-   for(int i = 0; i < ArraySize(g_kpDay); i++)
-      if(i == 0 || PeriodSeconds(g_kpDay[i]) >= chart)
-        {
-         out[n] = g_kpDay[i];
-         n++;
-        }
-
-   ArrayResize(out, n);
-   return(n);
   }
 
 //--- Breathing room between the text and the edge of the block behind it
@@ -1375,8 +1354,10 @@ bool SegAdd(const ENUM_TIMEFRAMES tf, const bool withDay, const bool gap,
              InpPanelHit);
 
    //--- Compared in seconds rather than by position in the list, so a broker's
-   //--- non-standard period lands where its length puts it, the same way
-   //--- KihonDayList picks the day ladder.
+   //--- non-standard period lands where its length puts it. This is the one
+   //--- place a row is still dropped for not fitting, and the test is
+   //--- reachability inside the candle rather than the chart's period: a row
+   //--- that cannot reach the first kihon number could only ever count down.
    int span = PeriodSeconds(tf);
 
    for(int i = 0; i < ArraySize(g_ksFine); i++)
@@ -1463,11 +1444,8 @@ void UpdatePanel()
          bool     sess    = false;
          datetime dayOpen = PanelDayOpen(sess);
 
-         ENUM_TIMEFRAMES day[];
-         KihonDayList(day);
-
          PanelAdd(sess ? "Sess" : "Day", dayOpen, TIME_MINUTES,
-                  day, txt, clr, n);
+                  g_kpDay, txt, clr, n);
 
          //--- The nested M1 count. Running M1 across a whole day gives a number
          //--- that is past 257 by breakfast and says nothing after that, so it

@@ -400,7 +400,7 @@ InpShowPanel    = input.bool(true, "Show the count panel", group = gPnl)
 InpShowYear     = input.bool(true, "Year block — MN1, W1, D1", group = gPnl)
 InpShowMonth    = input.bool(true, "Month block — D1, H4, H1", group = gPnl)
 InpShowWeek     = input.bool(true, "Week block — H4, H1, M30", group = gPnl)
-InpShowDay      = input.bool(true, "Day block — H1 to chart", group = gPnl)
+InpShowDay      = input.bool(true, "Day block — H1, M30, M15, M5, M1", group = gPnl)
 InpPanelCorner  = input.string("Left upper", "Corner", group = gPnl,
      options = ["Left upper", "Left lower", "Right upper", "Right lower"])
 InpPanelMiddle  = input.bool(true, "Centre it vertically", group = gPnl)
@@ -488,7 +488,7 @@ cH4_W  = request.security(syminfo.tickerid, "240", kihonCountHere(ANCHOR_WEEK, 0
 cH1_W  = request.security(syminfo.tickerid, "60",  kihonCountHere(ANCHOR_WEEK, 0, 0), lookahead = LK)
 cM30_W = request.security(syminfo.tickerid, "30",  kihonCountHere(ANCHOR_WEEK, 0, 0), lookahead = LK)
 
-// Day block — H1 down to the chart's own period
+// Day block — the whole intraday ladder, on every chart period
 cH1_D  = request.security(syminfo.tickerid, "60", kihonCountHere(dayMode, InpAnchorHour, InpAnchorMin), lookahead = LK)
 cM30_D = request.security(syminfo.tickerid, "30", kihonCountHere(dayMode, InpAnchorHour, InpAnchorMin), lookahead = LK)
 cM15_D = request.security(syminfo.tickerid, "15", kihonCountHere(dayMode, InpAnchorHour, InpAnchorMin), lookahead = LK)
@@ -926,17 +926,18 @@ if barstate.islast
             pushTitle(mkA, tfA, ctA, tlA, clA, daySess ? "Sess" : "Day", dayOpen,
                  false, InpPanelColor)
 
-            // H1 down to the CHART's own period and no finer: detail finer than
-            // the candles in front of you is a count of something you cannot
-            // see. H1 is always kept, so an H4 or daily chart still gets the
-            // hour count rather than an empty block.
-            pushCount(mkA, tfA, ctA, tlA, clA, "H1", SEC_H1, cH1_D, dayOpen)
-            if SEC_M30 >= chartSecs
-                pushCount(mkA, tfA, ctA, tlA, clA, "M30", SEC_M30, cM30_D, dayOpen)
-            if SEC_M15 >= chartSecs
-                pushCount(mkA, tfA, ctA, tlA, clA, "M15", SEC_M15, cM15_D, dayOpen)
-            if SEC_M5 >= chartSecs
-                pushCount(mkA, tfA, ctA, tlA, clA, "M5", SEC_M5, cM5_D, dayOpen)
+            // The whole intraday ladder, on every chart period. The count of
+            // M5 candles since the day open is the same number whatever period
+            // you read it from, and it is often the reason to look - an H1
+            // chart showing only its own hour count hides the three rows
+            // underneath it that say where inside that hour the session has
+            // got to. Fixed like the three blocks above it, for the same
+            // reason: a row that came and went with the chart period could not
+            // be read across a timeframe change.
+            pushCount(mkA, tfA, ctA, tlA, clA, "H1",  SEC_H1,  cH1_D,  dayOpen)
+            pushCount(mkA, tfA, ctA, tlA, clA, "M30", SEC_M30, cM30_D, dayOpen)
+            pushCount(mkA, tfA, ctA, tlA, clA, "M15", SEC_M15, cM15_D, dayOpen)
+            pushCount(mkA, tfA, ctA, tlA, clA, "M5",  SEC_M5,  cM5_D,  dayOpen)
 
             // The nested M1 row, on every period - it is the one row carrying
             // information none of the others do. The label carries the hour it
