@@ -14,3 +14,9 @@ PO3_Gold_Levels.html
 # MetaEditor build output
 *.ex5
 *.ex4
+
+# Personal Claude Code config. The hook script itself is checked in — on its own
+# it does nothing, since a script only runs once something wires it to an event —
+# but the settings file that arms it is not, so cloning this repo never turns on
+# an auto-push to whatever origin the clone happens to point at.
+.claude/settings.local.json
