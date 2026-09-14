@@ -48,6 +48,7 @@ on the time theory (*jikan ron*) of Goichi Hosoda's Ichimoku Kinko Hyo.
 - A third block beside those, timetabling this week's kihon suchi candles on D1 down to M15 and the ones still to come today on H1 down to M15
 - Session timer for capping screen time, unaffected by switching timeframe
 - Redraws only when price crosses a grid cell or a new bar opens, not on every tick
+- A separate loadable indicator that emails that timetable instead of drawing it, in both server time and UTC, tagged by Tokyo / London / New York session and filtered to Monday–Friday
 
 ## How the levels are built
 
@@ -104,8 +105,9 @@ checkbox order it is registered in.
 
 ```text
 PO3_Core.mqh            Shared PO3 level maths, used by the EA
-PO3_Kihon.mqh           Kihon suchi numbers and the candle count, used by the indicator
+PO3_Kihon.mqh           Kihon suchi numbers, the candle count, and the timetable projection
 PO3_Levels.mq5          MetaTrader 5 indicator, whole-number PO3 grids by checkbox
+PO3_Kihon_Mailer.mq5    MetaTrader 5 indicator, emails the week's kihon suchi timetable
 PO3_Scalper.mq5         MetaTrader 5 Expert Advisor, scalps rejections of the 9 and 27 grids
 PO3_Levels.pine         TradingView Pine v5, a port of the MT5 indicator with both headers inlined
 ```
@@ -130,6 +132,17 @@ was replaced by the port and is in the git history if you want it back.
    they must sit in the same folder, and the header is not optional
 3. Open it in MetaEditor and compile with `F7`
 4. In MT5: Navigator → Indicators → refresh → drag onto a gold chart
+
+For the mailer, additionally:
+
+1. Copy `PO3_Kihon_Mailer.mq5` into `MQL5/Indicators/` beside the same
+   `PO3_Kihon.mqh` the indicator uses — one copy of the header serves both
+2. Compile it with `F7`
+3. Fill in **Tools → Options → Email** and tick it. `SendMail()` sends to the
+   *To* address there and nothing in MQL5 can override it, so that is where the
+   calendar's address goes
+4. Drag it onto a gold chart when you want the week's timetable. It sends once
+   and stops; drag it off again afterwards, or leave it loaded and press `M`
 
 For the EA, additionally:
 
@@ -715,6 +728,177 @@ share one top edge.
 **A caution.** The count is arithmetic, not a signal. It tells you where a turn
 is *due*, never that one is happening and never which way. Nothing in the
 indicator acts on these numbers, and the EA does not read them.
+
+## Kihon Suchi Mailer (indicator)
+
+`PO3_Kihon_Mailer.mq5` sends the schedule panel as an email instead of drawing
+it. The panel is the right way to read the timetable while you are at the
+chart; this is for when you are not — load it, it mails the week's kihon suchi
+candle opens to whatever address the terminal is configured with, and then it
+stops.
+
+It is an **indicator rather than an Expert Advisor**, for two reasons. A chart
+holds only one EA, and putting this in that slot would mean unloading whatever
+is trading there to send an email. And an indicator needs no Algo Trading
+permission, which a thing that only ever sends text has no business asking for.
+It draws nothing, places no orders, and takes no chart space.
+
+Every number, count and projection in it comes out of `PO3_Kihon.mqh` — the
+same functions the panel draws from — so the mail and the chart cannot disagree
+about when a candle opens. Adding it is what moved `SchedProject()`,
+`SchedWhen()`, `TfNameOf()` and the two timeframe ladders out of
+`PO3_Levels.mq5` and into the header: a projection walk kept in two copies is a
+projection walk that will eventually disagree with itself.
+
+### What it needs from the terminal
+
+**Tools → Options → Email**, filled in and ticked. MQL5 has no say in who the
+mail goes to — `SendMail()` sends to the *To* address in that dialog and there
+is no argument to override it, so the calendar's address goes there. Gmail
+needs an app password rather than the account password, on port 465 or 587.
+
+If that is not set up the mail fails, says so in the Experts tab, and the
+timetable is still written to `MQL5/Files/PO3_Kihon_<SYMBOL>_<date>.txt` — the
+file is written whether or not the mail goes, because a terminal with no SMTP
+configured is the ordinary case for a first run and losing the timetable to a
+dialog box is a poor way to find that out.
+
+### What the mail says
+
+```text
+PO3 KIHON SUCHI TIMETABLE
+
+symbol      XAUUSD
+week open   Mon 14/09 00:00 server
+            2026-09-13T21:00:00Z
+written     Sun 13/09 18:32 server
+server-utc  +03:00
+numbers     9 to 33
+filters     Monday to Friday only; Friday 08:00-17:00 London dropped
+sessions    Tokyo 09:00-18:00 Tokyo, LondonOpen 08:00-17:00 London, NewYork 08:00-17:00 New York
+
+WEEK  9 to 33 counted from the week open, D1 down to M15
+TF   NUM  UTC                     SERVER           WHEN  SOURCE     SESSION
+M15    9  2026-09-13T23:00:00Z  ~ Mon 14/09 02:00  due   projected  -
+M30    9  2026-09-14T01:00:00Z  ~ Mon 14/09 04:00  due   projected  Tokyo
+M15   17  2026-09-14T01:00:00Z  ~ Mon 14/09 04:00  due   projected  Tokyo
+H1     9  2026-09-14T05:00:00Z  ~ Mon 14/09 08:00  due   projected  Tokyo
+H1    17  2026-09-14T13:00:00Z  ~ Mon 14/09 16:00  due   projected  LondonOpen+NewYork
+...
+
+  Tokyo 10, LondonOpen 4, NewYork 3, outside any 6  (an overlap counts in both)
+
+CONFLUENCE  2+ timeframes on one instant
+UTC                     SERVER            SESSION               TIMEFRAMES
+2026-09-14T01:00:00Z  ~ Mon 14/09 04:00  Tokyo                 M30 9, M15 17
+2026-09-14T05:00:00Z  ~ Mon 14/09 08:00  Tokyo                 H1 9, M30 17, M15 33
+2026-09-14T13:00:00Z  ~ Mon 14/09 16:00  LondonOpen+NewYork    H1 17, M30 33
+2026-09-15T05:00:00Z  ~ Tue 15/09 08:00  Tokyo                 H4 9, H1 33
+```
+
+**Both clocks on every row.** The UTC stamp is unambiguous and needs no
+knowledge of the broker, which is what makes the mail machine-readable; the
+server stamp is what the chart panel shows and what you would check it against.
+The offset used for the conversion is stated in the preamble, because it is the
+one number a reader cannot recover from the rows and the one that would
+silently poison every UTC stamp if it were wrong.
+
+**A `~` means projected**, exactly as on the panel: that candle has not printed
+yet, so its open is stepped forward from the last one that did, skipping the
+days the symbol does not trade. A mail written on a Sunday is *entirely*
+projections — nothing in the week has opened — which is worth knowing before
+treating a 04:00 as a fixed appointment.
+
+**The confluence section is the reading.** A week list is twenty rows; the four
+or five instants that repeat in it are the part worth a calendar entry. An H4 9
+and an H1 33 at the same minute are two counts arriving together, which is a
+different event from either arriving alone, and it is the reason all five
+timeframes are counted from one anchor.
+
+### Monday to Friday, and Friday's London session
+
+Two cuts, made on two different clocks on purpose.
+
+**Monday to Friday is judged in server time**, because that is the clock the
+candle is stamped in and the one the chart panel prints — a row dropped here is
+a row you can see was dropped. On the usual gold broker, at UTC+2 or UTC+3, the
+trading week already starts on a server Monday, which is the offset's whole
+point. A candle at 02:00 server Monday is kept even though it is 23:00 Sunday
+in UTC.
+
+**Friday's London session is judged in London time**, because that is what the
+words mean. The window is the same one the session column labels rows with, so
+the two cannot come to mean different things.
+
+### Sessions
+
+Each window is given in **its own city's clock** and converted with that city's
+own daylight saving rule: London on the UK's dates, New York on the United
+States', Tokyo on neither, because Japan has kept none since 1951.
+
+That is the only way a session window stays put. Written in UTC instead, London
+would wander by an hour in March and New York by an hour in November, and for
+the two or three weeks each spring when the US has changed and the UK has not,
+the two would be wrong in opposite directions — which is exactly the stretch of
+the year the overlap matters most.
+
+A candle in an overlap carries both names, joined with a `+`, rather than being
+forced into one bucket: the London–New York hours are where the volume is, and
+a kihon candle landing in them is a different proposition from the same number
+landing in a thin Tokyo hour. A `-` is a candle opening in none of the three,
+which on gold is an ordinary thing for it to do.
+
+> **`LondonOpen` is the whole London session by default**, 08:00 to 17:00. If
+> you mean the narrower open — the first three hours — set the close to 11 and
+> both the label and the Friday filter follow.
+
+### The Sunday problem
+
+`iTime(W1, 0)` is the newest weekly bar, and on a Sunday afternoon that is the
+week which has just **finished** — so a mail built from it straight would be
+last week's timetable, every row already gone. The mailer tests for this: if it
+is the weekend in server time and that bar opened before this weekend began,
+the week worth writing about is the next one, and its open is that bar plus
+seven days.
+
+The test is written that way round — *opened before this weekend* rather than
+*it is the weekend* — because a broker quoting from Sunday evening has already
+opened the new weekly bar by the time some Sunday runs happen, and stepping
+that on another seven days would skip a week.
+
+A week that has not started has no candles in it to read, so the whole list is
+projected from the open itself, the today list is empty by definition, and the
+preamble says so.
+
+The same closed market is why it runs on a **timer rather than on ticks**. A
+gold chart gets no ticks at all on a Sunday; an indicator waiting on
+`OnCalculate` would sit there until the market opened and then send a timetable
+a day late.
+
+### Inputs
+
+| Input | Default | Notes |
+|---|---|---|
+| This week's kihon candles, D1 down to M15 | `true` | The week list — the point of the thing |
+| Also what is still ahead today | `true` | Empty by definition on a Sunday |
+| Include the numbers already gone | `false` | On for context: what the market did at the last number |
+| Include the compound numbers (33) | `true` | Off holds the window to 9–26 |
+| Call out an instant shared by this many timeframes | `2` | `0` leaves the section out |
+| Monday to Friday only | `true` | Judged in server time |
+| Drop Friday's London session | `true` | Judged in London time |
+| Allow a chart that is not gold | `false` | It refuses a non-gold symbol otherwise |
+| Tokyo opens / closes | `9` / `18` | Tokyo time, no daylight saving |
+| London Open starts / ends | `8` / `17` | London time, UK daylight saving dates |
+| New York opens / closes | `8` / `17` | New York time, US daylight saving dates |
+| Send it by email | `true` | Needs Tools → Options → Email |
+| Also write it to MQL5/Files | `true` | Written whether or not the mail goes |
+| Send as soon as the history is ready | `true` | Waits up to a minute for it |
+| Send again when a new week opens | `false` | For leaving it loaded |
+| Press this on the chart to send again | `M` | Empty string for none |
+
+**A caution, the same one the panel carries.** The count is arithmetic, not a
+signal. It says where a turn is due, never that one is happening and never
+which way. Nothing in the mailer acts on these numbers.
 
 ## PO3 Scalper (Expert Advisor)
 

@@ -70,7 +70,7 @@
 //|   19683  around 2950 -> 2755.62 .. 3149.28   (row 40, x14..16)   |
 //+------------------------------------------------------------------+
 #property copyright "PO3 Levels"
-#property version   "1.38"
+#property version   "1.39"
 //--- Shown in the Navigator and in the properties dialog. The indicator does
 //--- two things now, and a name that says only "PO3 Levels" undersells half of
 //--- it to anyone reading the list.
@@ -678,14 +678,6 @@ void Rebuild(const double price, const datetime labelTime)
      }
 
    ChartRedraw();
-  }
-
-//+------------------------------------------------------------------+
-//| A timeframe's short name, "M15" rather than "PERIOD_M15".        |
-//+------------------------------------------------------------------+
-string TfNameOf(const ENUM_TIMEFRAMES tf)
-  {
-   return(StringSubstr(EnumToString(tf), 7));
   }
 
 //--- the chart's own timeframe
@@ -1519,142 +1511,6 @@ bool SegAdd(const ENUM_TIMEFRAMES tf, const bool withDay, const bool gap,
 //| number, written as weekday, date and time of day.                |
 //+------------------------------------------------------------------+
 
-//--- The week ladder, coarse to fine. All five rows count from the SAME
-//--- anchor, the week open, so their times can be read against each other: a
-//--- 16:00 on the H4 row and a 16:00 on the M30 row are one instant, and two
-//--- timeframes turning together there is the agreement the panel is for.
-//---
-//--- D1 is in the list knowing full well where its numbers land. A trading
-//--- week holds five D1 candles, so D1 9 is the middle of NEXT week and D1 33
-//--- over a month out. They are listed anyway, as projections: the D1 count is
-//--- genuinely running from this week's open, and where it arrives is worth
-//--- knowing even when the answer is "not in this week".
-const ENUM_TIMEFRAMES g_schWeek[5] = { PERIOD_D1,  PERIOD_H4, PERIOD_H1,
-                                       PERIOD_M30, PERIOD_M15 };
-
-//--- The intraday ladder. H4 is not in it: six H4 candles fit in a trading day,
-//--- so the first number it can reach is days away and belongs to the week list
-//--- above. H1 reaches 17 within a day, M30 reaches 33 and M15 clears the whole
-//--- window, which is why the groups are different lengths.
-const ENUM_TIMEFRAMES g_schDay[3]  = { PERIOD_H1, PERIOD_M30, PERIOD_M15 };
-
-//--- The window of numbers the schedule lists, inclusive: 9, 17, 26, 33. Past
-//--- 33 a week of any of these timeframes cannot reach the next number - 42 H4
-//--- candles is seven trading days - so every further row would be a date in a
-//--- later week sitting under this week's heading. With the compounds switched
-//--- off the window ends at 26 instead, since 33 is one of them.
-#define SCH_FIRST   9
-#define SCH_LAST   33
-
-//--- MqlDateTime.day_of_week is 0 for Sunday, so the table is indexed off it
-//--- directly.
-const string g_schDow[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
-
-//+------------------------------------------------------------------+
-//| A candle open written the way a diary entry is: weekday, date,   |
-//| time of day.                                                     |
-//|                                                                  |
-//| The month is in it and the year is not. Most of the block is     |
-//| inside this week, where the weekday alone would do - but the D1  |
-//| rows are not, and they are the ones that need it: D1 9 is a week |
-//| and a half out and D1 33 over a month, so a bare "Tue 06" under  |
-//| a heading that says this week reads as the 6th of a month that   |
-//| has already gone. Three characters to make the column say what   |
-//| it means.                                                        |
-//|                                                                  |
-//| The year stays out. Nothing here reaches one: the furthest row   |
-//| in the block is D1 33, around seven trading weeks ahead.         |
-//+------------------------------------------------------------------+
-string SchedWhen(const datetime t)
-  {
-   if(t <= 0)
-      return("-");
-
-   MqlDateTime st;
-   TimeToStruct(t, st);
-
-   //--- Clamped rather than trusted. day_of_week is always 0..6 from a valid
-   //--- time, but this indexes a fixed array and an out-of-range read here
-   //--- would be a crash rather than a wrong weekday.
-   int dow = (st.day_of_week >= 0 && st.day_of_week <= 6) ? st.day_of_week : 0;
-
-   return(StringFormat("%s %02d/%02d %02d:%02d",
-                       g_schDow[dow], st.day, st.mon, st.hour, st.min));
-  }
-
-//+------------------------------------------------------------------+
-//| Does this symbol trade at all on that weekday.                   |
-//|                                                                  |
-//| Asked of the symbol rather than assumed, because "the weekend"   |
-//| is not the same two days everywhere: a broker quoting from       |
-//| Sunday evening has real Sunday candles, and a rule that pushed   |
-//| them to Monday would put every projection out by the length of   |
-//| that session.                                                    |
-//|                                                                  |
-//| Session 0 is the first of the day, so a day with no session at   |
-//| all answers false - which is the question. A symbol whose        |
-//| session table cannot be read answers false on every day, and the |
-//| fallback then gives the ordinary Monday-to-Friday week, so the   |
-//| two cases need no telling apart.                                 |
-//+------------------------------------------------------------------+
-bool SchedTradingDay(const int dow)
-  {
-   datetime from = 0, to = 0;
-
-   if(SymbolInfoSessionTrade(_Symbol, (ENUM_DAY_OF_WEEK)dow, 0, from, to))
-      return(true);
-
-   return(dow != 0 && dow != 6);
-  }
-
-//+------------------------------------------------------------------+
-//| Where a candle that has not opened yet will open.                |
-//|                                                                  |
-//| Stepped one period at a time rather than multiplied out, because |
-//| of the closed days: no timeframe carries candles through one, so |
-//| a step landing in one is pushed on a whole day at a time until   |
-//| it clears. Whole days, so the time of day survives the skip - a  |
-//| D1 candle stays at midnight, an H1 on the hour.                  |
-//|                                                                  |
-//| It is an ESTIMATE, and every row built on one says so with a ~.  |
-//| The closed days it handles; the daily maintenance break a broker |
-//| takes it does not, so an intraday projection crossing several    |
-//| days drifts by roughly that break per day crossed. Which is why  |
-//| times are read off real bars wherever the bars exist and this is |
-//| asked only about the part of the ladder still in front.          |
-//+------------------------------------------------------------------+
-datetime SchedProject(const datetime from, const int steps, const int secs)
-  {
-   if(from <= 0 || steps <= 0 || secs <= 0)
-      return(from);
-
-   //--- long rather than datetime: the arithmetic is plain addition either
-   //--- way, but datetime is unsigned and an intermediate that went below zero
-   //--- would wrap to the far end of the epoch instead of staying wrong in an
-   //--- obvious way.
-   long        t = (long)from;
-   MqlDateTime st;
-
-   for(int i = 0; i < steps; i++)
-     {
-      t += secs;
-
-      //--- A stretch of closed days is at most two on any normal calendar, so
-      //--- three turns is one more than this can need. The spare turn is what
-      //--- stops a symbol that claims to trade on no day at all from spinning
-      //--- the loop for ever.
-      for(int skip = 0; skip < 3; skip++)
-        {
-         TimeToStruct((datetime)t, st);
-         if(SchedTradingDay(st.day_of_week))
-            break;
-         t += 86400;
-        }
-     }
-
-   return((datetime)t);
-  }
-
 //+------------------------------------------------------------------+
 //| One schedule row: which timeframe, which number, when that       |
 //| candle opens, and whether it has been and gone.                  |
@@ -1703,7 +1559,8 @@ string SchedRow(const ENUM_TIMEFRAMES tf, const int k, const int c,
          when  = iTime(_Symbol, tf, c - k);
         }
       else
-         when = SchedProject(iTime(_Symbol, tf, 0), k - c, PeriodSeconds(tf));
+         when = SchedProject(_Symbol, iTime(_Symbol, tf, 0), k - c,
+                             PeriodSeconds(tf));
 
       stamp = ((state == 2) ? "~" : " ") + SchedWhen(when);
       tail  = (state == 0) ? "done" : ((state == 1) ? "NOW" : "due");
@@ -1826,7 +1683,7 @@ bool SchedDayAdd(const ENUM_TIMEFRAMES tf, const datetime anchor,
       if(!InpSchedDayAll && k > SCH_LAST)
          break;                                // ascending, so nothing after it
 
-      datetime when = SchedProject(cur, k - c, secs);
+      datetime when = SchedProject(_Symbol, cur, k - c, secs);
       if(when <= 0 || when >= end)
          continue;                             // opens after today is out
 
