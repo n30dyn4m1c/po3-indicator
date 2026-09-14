@@ -195,7 +195,8 @@ it. What the platform changes is covered under
 | Include the compound numbers (33 and up) | `true` | Untick for 9, 17 and 26 only |
 | Vertical line on each marked candle | `true` | Drawn behind the candles |
 | 9, 17, 26 — colour | `clrDeepSkyBlue` | The simple numbers |
-| 33 and up — colour | `clrMediumOrchid` | The compound numbers |
+| 33 — colour | `clrMediumOrchid` | The first compound, and the last number of the band that carries the reading |
+| 42 and up — colour | `clrDarkGreen` | Recessive, so the far compounds don't compete with 9–33 |
 | Marker text size | `8` | Clamped to 5–20 |
 | Marker offset from the candle low, in points | `0` | Positive pushes the number further below the low |
 | Number every candle, not just the kihon ones | `false` | Capped at the most recent 300 candles |
@@ -323,8 +324,19 @@ The series keeps doubling past 257 — 257 + 257 − 1 = 513 — but a number th
 large has no use on an intraday chart, where even 257 M1 candles is only a
 little over four hours. The list stops where the classical one stops.
 
-Simple and compound are coloured differently and *Include the compound numbers*
-turns the compounds off, which leaves 9, 17 and 26 on a much quieter chart.
+Markers come in **three colour bands, not two**. The obvious split is simple
+against compound, but that puts 33 in with 257, which is true to the arithmetic
+and wrong on the chart — a marker's colour is read as how much weight to give
+it, and those two are nothing alike in practice.
+
+So 9, 17, 26 and 33 are the band that carries the reading, and 42 upward takes
+a recessive colour. They still mark and still mean what they mean; they just
+read as the background series rather than competing with the four that matter.
+The cut is at 33 for the same reason the schedule panel stops there: past it,
+no timeframe on an intraday chart reaches the next number inside a week.
+
+*Include the compound numbers* still turns everything above 26 off, which
+leaves 9, 17 and 26 on a much quieter chart again.
 
 #### The panel
 

@@ -70,7 +70,7 @@
 //|   19683  around 2950 -> 2755.62 .. 3149.28   (row 40, x14..16)   |
 //+------------------------------------------------------------------+
 #property copyright "PO3 Levels"
-#property version   "1.36"
+#property version   "1.37"
 //--- Shown in the Navigator and in the properties dialog. The indicator does
 //--- two things now, and a name that says only "PO3 Levels" undersells half of
 //--- it to anyone reading the list.
@@ -143,11 +143,24 @@ input color             InpOpenColor   = clrDimGray;        // Open line colour
 input group "Kihon suchi";
 //--- The numbers are time levels the way the PO3 grid is price levels. Marked
 //--- on the chart timeframe only; the panel below carries the rest.
+//---
+//--- Three colour bands, not two. The old split was simple against compound,
+//--- which put 33 in with 257 - true to the arithmetic and wrong on the chart,
+//--- because a marker's colour is read as how much weight to give it and those
+//--- two are nothing like each other in practice.
+//---
+//--- 9, 17, 26 and 33 are the band that carries the reading. They are the only
+//--- numbers a week of the timeframes on this chart can actually reach, which
+//--- is the same reason the schedule panel stops at 33 - see SCH_LAST. 42 and
+//--- up still mark, and still mean what they mean, but in a recessive colour
+//--- so they read as the background series they are rather than competing with
+//--- the four that matter.
 input bool  InpMarkKihon     = true;             // Mark the kihon suchi candles
 input bool  InpKihonCompound = true;             // Include the compound numbers (33 and up)
 input bool  InpKihonLines    = true;             // Vertical line on each marked candle
 input color InpKihonSimple   = clrDeepSkyBlue;   // 9, 17, 26      - colour
-input color InpKihonComp     = clrMediumOrchid;  // 33 and up      - colour
+input color InpKihonComp     = clrMediumOrchid;  // 33             - colour
+input color InpKihonFar      = clrDarkGreen;     // 42 and up      - colour
 input int   InpKihonSize     = 8;                // Marker text size
 input int   InpKihonGapPts   = 0;                // Marker offset from the candle low, in points
 input bool  InpNumberAll     = false;            // Number every candle, not just the kihon ones
@@ -291,6 +304,15 @@ input color InpCol_19683 = clrCrimson;         // 19683  - colour
 //--- And again for the third block. "PO3_KC" shares no prefix with the other
 //--- three, so each panel's sweep takes only its own rows.
 #define PO3_KSCHED  "PO3_KC"
+
+//--- The last number of the band that carries the reading. At or below it a
+//--- marker takes one of the two prominent colours; above it the recessive one.
+//--- The same 33 the schedule panel stops at, and for the same reason - past it
+//--- no timeframe on this chart reaches the next number inside a week - but
+//--- kept as its own constant, because how a marker is COLOURED and which
+//--- numbers get a row in the timetable are two decisions that only happen to
+//--- agree today.
+#define KIHON_MAIN_LAST  33
 #define PO3_COUNT   9
 
 //--- resolved table, built in OnInit, ascending by PO3 number
@@ -931,6 +953,22 @@ void DrawCountMark(const string id, const int shift, const string text,
   }
 
 //+------------------------------------------------------------------+
+//| The colour a marked candle's number is drawn in.                 |
+//|                                                                  |
+//| Three bands: the simple numbers, then 33, then everything above  |
+//| it. Taken from the number itself rather than from its position   |
+//| in the list, so the bands cannot drift out of step with          |
+//| KihonNumbers if that list ever changes.                          |
+//+------------------------------------------------------------------+
+color KihonMarkColor(const int k)
+  {
+   if(KihonIsSimple(k))
+      return(InpKihonSimple);
+
+   return((k <= KIHON_MAIN_LAST) ? InpKihonComp : InpKihonFar);
+  }
+
+//+------------------------------------------------------------------+
 //| Rebuild the on-chart marks, but only when they would move.       |
 //|                                                                  |
 //| The count changes exactly when a candle closes or the anchor     |
@@ -977,8 +1015,7 @@ void UpdateCount()
             break;
 
          DrawCountMark("K" + IntegerToString(k), aShift - (k - 1),
-                       IntegerToString(k),
-                       (i < KIHON_SIMPLE) ? InpKihonSimple : InpKihonComp,
+                       IntegerToString(k), KihonMarkColor(k),
                        InpKihonLines, size);
         }
 
