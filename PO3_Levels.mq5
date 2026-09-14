@@ -52,19 +52,32 @@
 //|  hour a turn is due in a finer count to place it in, rather than |
 //|  leaving it as one bar.                                          |
 //|                                                                  |
+//|  A third block beside those two turns the counts into a          |
+//|  timetable. Where the first says where the count stands and the  |
+//|  second where it stands inside the candle, this one says WHEN -  |
+//|  the clock time each kihon suchi candle of the week opens at, on |
+//|  D1, H4, H1, M30 and M15 counted from the week open, and then    |
+//|  the ones still in front of you today on H1, M30 and M15. Both   |
+//|  lists are held to the numbers 9 to 33, which are the ones a     |
+//|  week of those timeframes can actually reach. Times read off     |
+//|  real bars where the bars exist; a ~ marks the ones ahead, which |
+//|  are projected and skip the weekend but not a broker's daily     |
+//|  break.                                                          |
+//|                                                                  |
 //|  Verified against the PO3 workbook's Gold sheet, 14 Mar 2025:    |
 //|    2187  around 2900 -> 2799.36 .. 3083.67   (row 35, x128..141) |
 //|    6561  around 2950 -> 2755.62 .. 3149.28   (row 39, x42..48)   |
 //|   19683  around 2950 -> 2755.62 .. 3149.28   (row 40, x14..16)   |
 //+------------------------------------------------------------------+
 #property copyright "PO3 Levels"
-#property version   "1.35"
+#property version   "1.36"
 //--- Shown in the Navigator and in the properties dialog. The indicator does
 //--- two things now, and a name that says only "PO3 Levels" undersells half of
 //--- it to anyone reading the list.
 #property description "Power of Three support and resistance levels on gold, by checkbox from 3 to 19683."
 #property description "Also counts candles from the year, month, week and day opens and marks the"
-#property description "Ichimoku kihon suchi numbers on that count. Draws only - places no orders."
+#property description "Ichimoku kihon suchi numbers on that count, and times the ones this week"
+#property description "still has to come. Draws only - places no orders."
 #property indicator_chart_window
 #property indicator_buffers 0
 #property indicator_plots   0
@@ -194,11 +207,48 @@ input group "Kihon segment panel";
 //--- whatever the rows happen to say.
 //---
 //--- Colours and text size come from the panel group above too, so the two read
-//--- as one instrument in two blocks.
+//--- as one instrument in three blocks - the schedule panel past it takes
+//--- them from the same place.
 input bool  InpShowSeg = true;   // Show the kihon segment panel
 input bool  InpSegH4   = true;   // Segments inside a kihon H4 candle
 input bool  InpSegH1   = true;   // Segments inside a kihon H1 candle
 input int   InpSegGap  = 8;      // Gap between the two blocks, in pixels
+
+input group "Kihon schedule panel";
+//--- The third block, standing beside the segment panel, and the only one that
+//--- answers WHEN rather than where. The two blocks before it read the counts
+//--- as they stand; this one reads the clock those counts arrive on.
+//---
+//--- The week list is every kihon suchi candle of this week from D1 down to
+//--- M15, all five counted from the same week open so their times can be read
+//--- against each other - an H4 and an M30 landing on 16:00 together is two
+//--- timeframes turning at one instant, which is the agreement the whole panel
+//--- is for. It shows the numbers that have been and gone as well as the ones
+//--- still ahead, because "all of this week's" is what makes it a timetable
+//--- rather than a countdown.
+//---
+//--- The today list is the other half: only what is still in front, on H1, M30
+//--- and M15, and only the candles that open before the day is out.
+//---
+//--- Both are held to the numbers 9 to 33. Past 33 a week of any of these
+//--- timeframes cannot reach the next number, so every further row would be a
+//--- date in a later week sitting under this week's heading.
+//---
+//--- Like the segment panel it has no position inputs - same corner, same top
+//--- edge, one gap further along - so the only thing to set is how far it
+//--- stands from the block before it. Colours and text size come from the
+//--- count panel group, so all three read as one instrument in three blocks.
+input bool  InpShowSched = true;   // Show the kihon schedule panel
+input bool  InpSchedWeek = true;   // This week's kihon candles, D1 down to M15
+input bool  InpSchedDay  = true;   // Still ahead today, H1 down to M15
+//--- The today list is held to 9-33 like the week list above, and on the finer
+//--- timeframes that window is spent early: M30 passes 33 by mid-morning and
+//--- M15 well before that, after which the section reads "none" for the rest of
+//--- the session. Tick this to let it run to whatever number each timeframe can
+//--- still reach before the day is out - M15 to 76, M30 to 42, H1 to 17 - which
+//--- keeps it saying something all day at the cost of a longer block.
+input bool  InpSchedDayAll = false; // ... and past 33, as far as the day reaches
+input int   InpSchedGap  = 8;      // Gap from the block before it, in pixels
 
 input group "PO3 levels to show";
 //--- Every grid is on by default: the model is the whole nest of powers, and a
@@ -238,6 +288,9 @@ input color InpCol_19683 = clrCrimson;         // 19683  - colour
 //--- independently, and "PO3_KP" as a prefix would take the segment panel with
 //--- the main one every time the main one was rebuilt from scratch.
 #define PO3_KSEG    "PO3_KS"
+//--- And again for the third block. "PO3_KC" shares no prefix with the other
+//--- three, so each panel's sweep takes only its own rows.
+#define PO3_KSCHED  "PO3_KC"
 #define PO3_COUNT   9
 
 //--- resolved table, built in OnInit, ascending by PO3 number
@@ -402,7 +455,7 @@ int OnInit()
       Print("PO3 Levels: no PO3 number ticked, no levels will be drawn.");
       //--- No grid, but the counts may still be the reason it is on the chart
       IndicatorSetString(INDICATOR_SHORTNAME,
-                         (InpShowCount || InpShowPanel || InpShowSeg)
+                         (InpShowCount || InpShowPanel || InpShowSeg || InpShowSched)
                          ? "Kihon count" : "PO3 (none ticked)");
       g_dirty = true;
       EventSetTimer(1);          // the countdown is independent of the levels
@@ -429,7 +482,7 @@ int OnInit()
                   PriceText((double)g_po3[i] / InpScale), g_each);
      }
    IndicatorSetString(INDICATOR_SHORTNAME, "PO3 " + names +
-                      ((InpShowCount || InpShowPanel || InpShowSeg)
+                      ((InpShowCount || InpShowPanel || InpShowSeg || InpShowSched)
                        ? " + kihon" : ""));
 
    g_anchor   = LONG_MIN;
@@ -803,10 +856,16 @@ const ENUM_TIMEFRAMES g_kpWeek[3]  = { PERIOD_H4,  PERIOD_H1,  PERIOD_M30 };
 const ENUM_TIMEFRAMES g_kpDay[4]   = { PERIOD_H1,  PERIOD_M30, PERIOD_M15,
                                        PERIOD_M5 };
 
-//--- Four blocks, their titles and the blank lines between them. Rows are
-//--- built into a fixed array and the unused tail deleted, so switching a
-//--- block off cannot leave an orphaned row behind on the chart.
-#define KP_MAX_ROWS   24
+//--- Rows are built into a fixed array and the unused tail deleted, so
+//--- switching a block off cannot leave an orphaned row behind on the chart.
+//--- The ceiling is shared by all three panels and sized for the tallest: the
+//--- schedule panel runs to 39 rows on the 9-33 window - five timeframes of
+//--- four numbers for the week, three more groups for today, and the titles and
+//--- spacers between them - and to 44 with the today list opened past 33, where
+//--- M15 alone contributes eight. The count panel's own worst case is 21 and
+//--- the segment panel's 9, so the number is the schedule panel's and the
+//--- headroom above it is deliberate.
+#define KP_MAX_ROWS   48
 
 //--- Ceiling on plain candle numbers. A whole day of M1 is 1440 labels, which
 //--- is both unreadable and a real drag on redraw, so only the most recent run
@@ -1030,8 +1089,8 @@ string PanelRow(const ENUM_TIMEFRAMES tf, const datetime anchor, color &col,
 //--- Breathing room between the text and the edge of the block behind it
 #define KP_PAD  6
 
-//--- Row pitch. Both panels are laid out on it and the count panel's height
-//--- decides where both of them start, so it is worked out in one place.
+//--- Row pitch. All three panels are laid out on it and the tallest of them
+//--- decides where they all start, so it is worked out in one place.
 int PanelLineH(const int size)
   {
    return((int)(size * 1.9) + 2);
@@ -1170,8 +1229,8 @@ void PanelBox(const string prefix, const ENUM_BASE_CORNER corner, const int x,
 //| Put one panel on the chart: its block, its rows, and the tail of |
 //| the last layout that this one no longer uses.                    |
 //|                                                                  |
-//| Everything that differs between the two panels is an argument,   |
-//| so the count panel and the segment panel cannot drift into       |
+//| Everything that differs between the panels is an argument, so    |
+//| the count, segment and schedule blocks cannot drift into         |
 //| behaving differently - only into standing side by side.          |
 //|                                                                  |
 //| x and top are given rather than worked out here, because the two |
@@ -1375,6 +1434,417 @@ bool SegAdd(const ENUM_TIMEFRAMES tf, const bool withDay, const bool gap,
   }
 
 //+------------------------------------------------------------------+
+//| The schedule panel: when this week's kihon suchi candles fall,   |
+//| and which of today's are still in front.                         |
+//|                                                                  |
+//| The two blocks beside it answer where the count has got to. This |
+//| one answers when it arrives, which is a different question and   |
+//| the one a plan is made against: a count reading 14 tells you 17  |
+//| is due, but not that 17 opens at 16:00, and 16:00 is the part    |
+//| that can go in a diary.                                          |
+//|                                                                  |
+//| Every time in the block is the OPEN of the candle carrying the   |
+//| number, written as weekday, date and time of day.                |
+//+------------------------------------------------------------------+
+
+//--- The week ladder, coarse to fine. All five rows count from the SAME
+//--- anchor, the week open, so their times can be read against each other: a
+//--- 16:00 on the H4 row and a 16:00 on the M30 row are one instant, and two
+//--- timeframes turning together there is the agreement the panel is for.
+//---
+//--- D1 is in the list knowing full well where its numbers land. A trading
+//--- week holds five D1 candles, so D1 9 is the middle of NEXT week and D1 33
+//--- over a month out. They are listed anyway, as projections: the D1 count is
+//--- genuinely running from this week's open, and where it arrives is worth
+//--- knowing even when the answer is "not in this week".
+const ENUM_TIMEFRAMES g_schWeek[5] = { PERIOD_D1,  PERIOD_H4, PERIOD_H1,
+                                       PERIOD_M30, PERIOD_M15 };
+
+//--- The intraday ladder. H4 is not in it: six H4 candles fit in a trading day,
+//--- so the first number it can reach is days away and belongs to the week list
+//--- above. H1 reaches 17 within a day, M30 reaches 33 and M15 clears the whole
+//--- window, which is why the groups are different lengths.
+const ENUM_TIMEFRAMES g_schDay[3]  = { PERIOD_H1, PERIOD_M30, PERIOD_M15 };
+
+//--- The window of numbers the schedule lists, inclusive: 9, 17, 26, 33. Past
+//--- 33 a week of any of these timeframes cannot reach the next number - 42 H4
+//--- candles is seven trading days - so every further row would be a date in a
+//--- later week sitting under this week's heading. With the compounds switched
+//--- off the window ends at 26 instead, since 33 is one of them.
+#define SCH_FIRST   9
+#define SCH_LAST   33
+
+//--- MqlDateTime.day_of_week is 0 for Sunday, so the table is indexed off it
+//--- directly.
+const string g_schDow[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+
+//+------------------------------------------------------------------+
+//| A candle open written the way a diary entry is: weekday, date,   |
+//| time of day.                                                     |
+//|                                                                  |
+//| The month is in it and the year is not. Most of the block is     |
+//| inside this week, where the weekday alone would do - but the D1  |
+//| rows are not, and they are the ones that need it: D1 9 is a week |
+//| and a half out and D1 33 over a month, so a bare "Tue 06" under  |
+//| a heading that says this week reads as the 6th of a month that   |
+//| has already gone. Three characters to make the column say what   |
+//| it means.                                                        |
+//|                                                                  |
+//| The year stays out. Nothing here reaches one: the furthest row   |
+//| in the block is D1 33, around seven trading weeks ahead.         |
+//+------------------------------------------------------------------+
+string SchedWhen(const datetime t)
+  {
+   if(t <= 0)
+      return("-");
+
+   MqlDateTime st;
+   TimeToStruct(t, st);
+
+   //--- Clamped rather than trusted. day_of_week is always 0..6 from a valid
+   //--- time, but this indexes a fixed array and an out-of-range read here
+   //--- would be a crash rather than a wrong weekday.
+   int dow = (st.day_of_week >= 0 && st.day_of_week <= 6) ? st.day_of_week : 0;
+
+   return(StringFormat("%s %02d/%02d %02d:%02d",
+                       g_schDow[dow], st.day, st.mon, st.hour, st.min));
+  }
+
+//+------------------------------------------------------------------+
+//| Does this symbol trade at all on that weekday.                   |
+//|                                                                  |
+//| Asked of the symbol rather than assumed, because "the weekend"   |
+//| is not the same two days everywhere: a broker quoting from       |
+//| Sunday evening has real Sunday candles, and a rule that pushed   |
+//| them to Monday would put every projection out by the length of   |
+//| that session.                                                    |
+//|                                                                  |
+//| Session 0 is the first of the day, so a day with no session at   |
+//| all answers false - which is the question. A symbol whose        |
+//| session table cannot be read answers false on every day, and the |
+//| fallback then gives the ordinary Monday-to-Friday week, so the   |
+//| two cases need no telling apart.                                 |
+//+------------------------------------------------------------------+
+bool SchedTradingDay(const int dow)
+  {
+   datetime from = 0, to = 0;
+
+   if(SymbolInfoSessionTrade(_Symbol, (ENUM_DAY_OF_WEEK)dow, 0, from, to))
+      return(true);
+
+   return(dow != 0 && dow != 6);
+  }
+
+//+------------------------------------------------------------------+
+//| Where a candle that has not opened yet will open.                |
+//|                                                                  |
+//| Stepped one period at a time rather than multiplied out, because |
+//| of the closed days: no timeframe carries candles through one, so |
+//| a step landing in one is pushed on a whole day at a time until   |
+//| it clears. Whole days, so the time of day survives the skip - a  |
+//| D1 candle stays at midnight, an H1 on the hour.                  |
+//|                                                                  |
+//| It is an ESTIMATE, and every row built on one says so with a ~.  |
+//| The closed days it handles; the daily maintenance break a broker |
+//| takes it does not, so an intraday projection crossing several    |
+//| days drifts by roughly that break per day crossed. Which is why  |
+//| times are read off real bars wherever the bars exist and this is |
+//| asked only about the part of the ladder still in front.          |
+//+------------------------------------------------------------------+
+datetime SchedProject(const datetime from, const int steps, const int secs)
+  {
+   if(from <= 0 || steps <= 0 || secs <= 0)
+      return(from);
+
+   //--- long rather than datetime: the arithmetic is plain addition either
+   //--- way, but datetime is unsigned and an intermediate that went below zero
+   //--- would wrap to the far end of the epoch instead of staying wrong in an
+   //--- obvious way.
+   long        t = (long)from;
+   MqlDateTime st;
+
+   for(int i = 0; i < steps; i++)
+     {
+      t += secs;
+
+      //--- A stretch of closed days is at most two on any normal calendar, so
+      //--- three turns is one more than this can need. The spare turn is what
+      //--- stops a symbol that claims to trade on no day at all from spinning
+      //--- the loop for ever.
+      for(int skip = 0; skip < 3; skip++)
+        {
+         TimeToStruct((datetime)t, st);
+         if(SchedTradingDay(st.day_of_week))
+            break;
+         t += 86400;
+        }
+     }
+
+   return((datetime)t);
+  }
+
+//+------------------------------------------------------------------+
+//| One schedule row: which timeframe, which number, when that       |
+//| candle opens, and whether it has been and gone.                  |
+//|                                                                  |
+//| Counting is inclusive, so candle k sits at shift (c - k) for as  |
+//| long as k <= c, and the time comes off the bar itself - exact,   |
+//| with the session breaks and the holidays already in it. Past the |
+//| count there is no bar to read, so the time is projected forward  |
+//| from the developing candle and flagged with a ~.                 |
+//|                                                                  |
+//| The timeframe is named only on the first row of its group. The   |
+//| rows under it are the same timeframe, and repeating it down the  |
+//| column makes the part that changes - the number and the time -   |
+//| the quieter half of the row.                                     |
+//|                                                                  |
+//| state is written back for the caller to colour on: 0 gone by, 1  |
+//| running now, 2 still ahead.                                      |
+//+------------------------------------------------------------------+
+string SchedRow(const ENUM_TIMEFRAMES tf, const int k, const int c,
+                const bool head, int &state)
+  {
+   state = 2;
+
+   string stamp, tail;
+
+   if(c <= 0)
+     {
+      //--- "no data" is history still arriving and has to hold the panel's
+      //--- gate open so the row is rewritten the moment it resolves. "too far"
+      //--- is a refusal that will not change; the week anchor is nowhere near
+      //--- KIHON_SPAN_CAP, so it is here for completeness rather than because
+      //--- anything in this block can reach it.
+      if(c == 0)
+         g_pUnknown = true;
+
+      stamp = (c == 0) ? " no data" : " too far";
+      tail  = "";
+     }
+   else
+     {
+      datetime when = 0;
+
+      if(k <= c)
+        {
+         state = (k == c) ? 1 : 0;
+         when  = iTime(_Symbol, tf, c - k);
+        }
+      else
+         when = SchedProject(iTime(_Symbol, tf, 0), k - c, PeriodSeconds(tf));
+
+      stamp = ((state == 2) ? "~" : " ") + SchedWhen(when);
+      tail  = (state == 0) ? "done" : ((state == 1) ? "NOW" : "due");
+     }
+
+   //--- The stamp is padded to the width of a full one - "~Thu 24/09 00:00" -
+   //--- so the status column behind it lines up whether the row carries a time
+   //--- or one of the two excuses for not having one.
+   return(StringFormat("%s %-3s %3d %-16s %-4s",
+                       (tf == (ENUM_TIMEFRAMES)_Period) ? ">" : " ",
+                       head ? TfNameOf(tf) : "", k, stamp, tail));
+  }
+
+//+------------------------------------------------------------------+
+//| One timeframe's group in the week list: its numbers in order,    |
+//| every one of them, whether it has passed or not.                 |
+//|                                                                  |
+//| All of them because this is a timetable and not a countdown. The |
+//| number that went at 08:00 is how you read the one due at 16:00 - |
+//| what the market did at the last one is the only evidence there   |
+//| is about what the next one is worth.                             |
+//+------------------------------------------------------------------+
+bool SchedWeekAdd(const ENUM_TIMEFRAMES tf, const datetime anchor,
+                  const bool gap, string &txt[], color &clr[], int &n)
+  {
+   int last = InpKihonCompound ? KIHON_COUNT : KIHON_SIMPLE;
+
+   //--- Counted before anything is written, so a group that will not fit is
+   //--- dropped whole rather than cut off halfway down its numbers.
+   int rows = 0;
+   for(int i = 0; i < last; i++)
+      if(KihonNumbers[i] >= SCH_FIRST && KihonNumbers[i] <= SCH_LAST)
+         rows++;
+
+   if(rows <= 0 || n + rows + (gap ? 1 : 0) > KP_MAX_ROWS)
+      return(false);
+
+   if(gap)
+      PanelPush(txt, clr, n, "", InpPanelColor);
+
+   int  c    = KihonCount(_Symbol, tf, anchor);
+   bool head = true;
+   bool lit  = false;
+
+   for(int i = 0; i < last; i++)
+     {
+      int k = KihonNumbers[i];
+      if(k < SCH_FIRST || k > SCH_LAST)
+         continue;
+
+      int    state = 2;
+      string row   = SchedRow(tf, k, c, head, state);
+
+      //--- Lime for the number the count is standing on, orange for the next
+      //--- one due, and nothing else. A column in which every future row
+      //--- shouted would have no next in it, and the ones behind are quiet on
+      //--- purpose: they are context, not the reading.
+      color col = InpPanelColor;
+      if(state == 1)
+         col = InpPanelHit;
+      else
+         if(state == 2 && !lit)
+           {
+            col = InpPanelNear;
+            lit = true;
+           }
+
+      PanelPush(txt, clr, n, row, col);
+      head = false;
+     }
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| One timeframe's group in the today list: the numbers it has not  |
+//| reached yet whose candle still opens before the day is out.      |
+//|                                                                  |
+//| Strictly ahead. A number the count is standing on belongs to the |
+//| segment block, which has far more to say about it than a line in |
+//| a timetable could, and a number already gone is not upcoming.    |
+//| What is left is the part of the day that has not happened.       |
+//|                                                                  |
+//| The day ends at the anchor plus twenty-four hours rather than at |
+//| the next D1 open, which does not exist yet to be read. On a      |
+//| session anchor that puts the window one session ahead, which is  |
+//| the span the Sess block in the panel counts.                     |
+//|                                                                  |
+//| That end is also what bounds the group, whichever number window  |
+//| is in force: a row is here because its candle opens today, not   |
+//| because it was near enough in the list, so the group is at most  |
+//| eight rows even with the window opened right up - M15 reaches 76 |
+//| in a day and nothing finer is counted.                           |
+//+------------------------------------------------------------------+
+bool SchedDayAdd(const ENUM_TIMEFRAMES tf, const datetime anchor,
+                 const bool gap, string &txt[], color &clr[], int &n)
+  {
+   int c = KihonCount(_Symbol, tf, anchor);
+   if(c <= 0)
+     {
+      if(c == 0)
+         g_pUnknown = true;                    // history still arriving
+      return(false);
+     }
+
+   //--- Gathered before anything is written, for the same reason the week
+   //--- group counts first: the group goes in whole or not at all.
+   int      keep[KIHON_COUNT];
+   int      rows = 0;
+   int      last = InpKihonCompound ? KIHON_COUNT : KIHON_SIMPLE;
+   datetime end  = (datetime)((long)anchor + 86400);
+   datetime cur  = iTime(_Symbol, tf, 0);
+   int      secs = PeriodSeconds(tf);
+
+   for(int i = 0; i < last; i++)
+     {
+      int k = KihonNumbers[i];
+      if(k < SCH_FIRST || k <= c)
+         continue;                             // below the window, or gone by
+      if(!InpSchedDayAll && k > SCH_LAST)
+         break;                                // ascending, so nothing after it
+
+      datetime when = SchedProject(cur, k - c, secs);
+      if(when <= 0 || when >= end)
+         continue;                             // opens after today is out
+
+      keep[rows++] = k;
+     }
+
+   if(rows <= 0 || n + rows + (gap ? 1 : 0) > KP_MAX_ROWS)
+      return(false);
+
+   if(gap)
+      PanelPush(txt, clr, n, "", InpPanelColor);
+
+   for(int i = 0; i < rows; i++)
+     {
+      int    state = 2;
+      string row   = SchedRow(tf, keep[i], c, i == 0, state);
+
+      //--- Orange on the first only: it is the next thing due on this
+      //--- timeframe, and the rest of the group is what follows it.
+      PanelPush(txt, clr, n, row, (i == 0) ? InpPanelNear : InpPanelColor);
+     }
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| The schedule panel's rows, both sections.                        |
+//|                                                                  |
+//| A section that finds nothing to say still prints its heading and |
+//| "none" underneath it, the way the segment panel does: a block    |
+//| that vanished would take its own explanation with it, and by     |
+//| late on a Friday the today list is empty for perfectly good      |
+//| reasons that an absence cannot state.                            |
+//+------------------------------------------------------------------+
+void SchedBuild(string &txt[], color &clr[], int &n)
+  {
+   n = 0;
+
+   if(!InpShowSched)
+      return;
+
+   if(InpSchedWeek)
+     {
+      datetime wk = iTime(_Symbol, PERIOD_W1, 0);
+
+      //--- The window as it actually stands, not as it is written above. With
+      //--- the compounds switched off 33 is not in the list, so the heading
+      //--- would be promising a row the block cannot produce; asking the
+      //--- active list for its last number at or below 33 gives 26 instead.
+      PanelPush(txt, clr, n,
+                StringFormat("%-6s %d-%d from %s", "Week", SCH_FIRST,
+                             KihonAtOrBelow(SCH_LAST, InpKihonCompound),
+                             (wk > 0) ? TimeToString(wk, TIME_DATE) : "-"),
+                InpPanelColor);
+
+      bool any = false;
+      for(int i = 0; i < ArraySize(g_schWeek); i++)
+         if(SchedWeekAdd(g_schWeek[i], wk, any, txt, clr, n))
+            any = true;
+
+      if(!any)
+         PanelPush(txt, clr, n, " none", InpPanelColor);
+     }
+
+   if(InpSchedDay)
+     {
+      //--- The same open the day block counts from, so the two cannot disagree
+      //--- about where today started. See PanelDayOpen.
+      bool     sess = false;
+      datetime day  = PanelDayOpen(sess);
+
+      if(n > 0)
+         PanelPush(txt, clr, n, "", InpPanelColor);
+
+      PanelPush(txt, clr, n,
+                StringFormat("%-6s ahead from %s", sess ? "Sess" : "Day",
+                             (day > 0) ? TimeToString(day, TIME_MINUTES) : "-"),
+                InpPanelColor);
+
+      bool any = false;
+      for(int i = 0; i < ArraySize(g_schDay); i++)
+         if(SchedDayAdd(g_schDay[i], day, any, txt, clr, n))
+            any = true;
+
+      if(!any)
+         PanelPush(txt, clr, n, " none", InpPanelColor);
+     }
+  }
+
+//+------------------------------------------------------------------+
 //| The count panel: a ladder of calendar periods, each counted in   |
 //| the candles that divide it.                                      |
 //|                                                                  |
@@ -1388,11 +1858,11 @@ bool SegAdd(const ENUM_TIMEFRAMES tf, const bool withDay, const bool gap,
 //| on a kihon number is a small turn due; the day, the week and the |
 //| month all landing on one at the same candle is a bigger one.     |
 //|                                                                  |
-//| Both panels are built here, in one pass, and placed against each |
-//| other rather than against the chart. The segment block is read   |
-//| off the same anchors as the ladder, so building them apart would |
-//| let one of them show a hit for a minute the other had already    |
-//| moved past.                                                      |
+//| All three panels are built here, in one pass, and placed against |
+//| each other rather than against the chart. The segment block and  |
+//| the schedule block are read off the same anchors as the ladder,  |
+//| so building them apart would let one of them show a hit for a    |
+//| minute another had already counted past.                         |
 //+------------------------------------------------------------------+
 void UpdatePanel()
   {
@@ -1494,21 +1964,41 @@ void UpdatePanel()
          PanelPush(stx, scl, sn, " none", InpPanelColor);
      }
 
-   //--- Both panels, same code, same pass, same text size: they are one
-   //--- instrument in two blocks, and two sizes would read as two.
+   //--- The schedule panel. Built in this same pass for the same reason the
+   //--- segment panel is: it reads the week and day opens over again, and a
+   //--- block built on its own clock could show a time the panel beside it had
+   //--- already counted past.
+   string schTxt[KP_MAX_ROWS];
+   color  schClr[KP_MAX_ROWS];
+   int    schN = 0;
+
+   SchedBuild(schTxt, schClr, schN);
+
+   //--- All three panels, same code, same pass, same text size: they are one
+   //--- instrument in three blocks, and three sizes would read as three.
    int size  = (int)MathMax(6, MathMin(20, InpPanelSize));
    int lineH = PanelLineH(size);
 
-   //--- The top edge both blocks share. Centring works from whichever edge the
-   //--- corner names, so it lands in the middle from an upper or a lower corner
-   //--- alike, and it is worked out from the COUNT panel's height - that is the
-   //--- tall one, and the short block beside it lines up with its top rather
-   //--- than floating in the middle of it. Clamped at the padding so a panel
-   //--- taller than the chart starts on screen rather than above it.
+   //--- The top edge all three blocks share. Centring works from whichever edge
+   //--- the corner names, so it lands in the middle from an upper or a lower
+   //--- corner alike. Clamped at the padding so a block taller than the chart
+   //--- starts on screen rather than above it.
    //---
-   //--- With the count panel switched off there is no tall block to centre on,
-   //--- so the segment panel centres on itself and takes the whole X.
-   int rows = (n > 0) ? n : sn;
+   //--- Centred on the TALLEST of the three, not on the count panel. It used to
+   //--- be the count panel's own height, on the reasonable grounds that it was
+   //--- the long one and the short block beside it should line up with its top
+   //--- rather than float in the middle of it. The schedule panel is longer
+   //--- still - five timeframes of four numbers before the today list even
+   //--- starts - so centring on anything shorter would push its foot off the
+   //--- bottom of the chart. They share one top edge either way, which is what
+   //--- keeps them reading as one instrument; only where that edge falls has
+   //--- changed, and only when the block that moved it is switched on.
+   int rows = n;
+   if(sn > rows)
+      rows = sn;
+   if(schN > rows)
+      rows = schN;
+
    int top  = InpPanelY;
    if(InpPanelMiddle && ch > 0)
       top = (int)MathMax(KP_PAD, (ch - rows * lineH) / 2);
@@ -1524,11 +2014,24 @@ void UpdatePanel()
       segX += PanelWidth(txt, n, size) + 2 * KP_PAD
               + (int)MathMax(0, InpSegGap);
 
+   //--- And once more along, past the segment panel. Measured the same way, so
+   //--- a segment block that widens when an H4 hit opens it pushes the
+   //--- schedule along instead of being covered by it. With the segment panel
+   //--- switched off sn is 0 and the schedule takes the place it would have
+   //--- stood in, rather than leaving a hole.
+   int schX = segX;
+   if(sn > 0)
+      schX += PanelWidth(stx, sn, size) + 2 * KP_PAD
+              + (int)MathMax(0, InpSchedGap);
+
    PanelDraw(PO3_KPANEL, InpPanelCorner, InpPanelX, top,
              txt, clr, n, size, fresh);
 
    PanelDraw(PO3_KSEG, InpPanelCorner, segX, top,
              stx, scl, sn, size, fresh);
+
+   PanelDraw(PO3_KSCHED, InpPanelCorner, schX, top,
+             schTxt, schClr, schN, size, fresh);
   }
 
 //+------------------------------------------------------------------+

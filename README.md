@@ -45,6 +45,7 @@ on the time theory (*jikan ron*) of Goichi Hosoda's Ichimoku Kinko Hyo.
 - A panel counting the year, month, week and day, each in the candles that divide it
 - A nested M1 count that restarts at every kihon suchi H1 candle
 - A second block beside that panel, counting M15, M5 and M1 inside any H4 or H1 candle standing on a kihon number
+- A third block beside those, timetabling this week's kihon suchi candles on D1 down to M15 and the ones still to come today on H1 down to M15
 - Session timer for capping screen time, unaffected by switching timeframe
 - Redraws only when price crosses a grid cell or a new bar opens, not on every tick
 
@@ -218,6 +219,11 @@ it. What the platform changes is covered under
 | Segments inside a kihon H4 candle | `true` | Checked against the month and week anchors |
 | Segments inside a kihon H1 candle | `true` | Checked against the month, week and day anchors |
 | Gap between the two blocks, in pixels | `8` | Its only placement input — it follows the count panel's corner, centring and X |
+| Show the kihon schedule panel | `true` | The third block: when this week's kihon candles fall, and which of today's are still ahead |
+| This week's kihon candles, D1 down to M15 | `true` | All five counted from the week open, numbers 9–33, passed and upcoming alike |
+| Still ahead today, H1 down to M15 | `true` | Only what has not happened yet, and only candles opening before the day is out |
+| ... and past 33, as far as the day reaches | `false` | Lets the today list run to M15 76, M30 42, H1 17 instead of stopping at 33 |
+| Gap from the block before it, in pixels | `8` | Its only placement input — it follows the block to its left |
 
 Width and style are derived from magnitude: 3/9/27 thin dotted, 81/243 thin
 solid, 729/2187 medium, 6561/19683 thick.
@@ -554,6 +560,116 @@ so the space stays accounted for, and it is read off the anchors directly, so
 it says the same thing whether or not you have the block that would show that
 row switched on.
 
+#### The timetable: when the numbers fall
+
+The count panel says where the count stands. The segment block says where it
+stands inside the candle. Neither says *when* — and when is the part you can
+act on in advance. A row reading `14  17 in 3` tells you three candles are
+left; it does not tell you that the third one opens at 16:00, and 16:00 is what
+goes in a diary.
+
+The third block is that timetable. It stands beside the segment block, one gap
+further along, on the same corner and the same top edge.
+
+```
+Week   9-33 from 2025.09.15        Day    ahead from 00:00
+  D1    9 ~Thu 25/09 00:00 due     > H1    9 ~Mon 15/09 08:00 due
+       17 ~Tue 07/10 00:00 due     >      17 ~Mon 15/09 16:00 due
+       26 ~Mon 20/10 00:00 due
+       33 ~Wed 29/10 00:00 due       M30   9 ~Mon 15/09 04:00 due
+                                          17 ~Mon 15/09 08:00 due
+  H4    9  Tue 16/09 08:00 done          26 ~Mon 15/09 12:30 due
+       17  Wed 17/09 16:00 NOW           33 ~Mon 15/09 16:00 due
+       26 ~Fri 19/09 04:00 due
+       33 ~Mon 22/09 08:00 due
+```
+
+Both columns are one block on the chart; they are side by side here only to fit
+the page.
+
+**Every time is a candle OPEN**, written as weekday, date and time of day. The
+month is in it because the D1 rows need it — a bare `Tue 07` under a heading
+that says *this week* reads as the 7th of a month already gone.
+
+**A `~` means the time is projected.** Candles that have already opened have
+their times read off the bars themselves, so the session breaks and the
+holidays are already in them. Candles still ahead have no bar to read, so their
+open is stepped forward one period at a time from the developing candle,
+skipping any weekday the symbol does not trade — read from the symbol's own
+session table, so a broker quoting from Sunday evening keeps its Sunday
+candles. It handles the closed days. It does not handle a broker's daily
+maintenance break, so an intraday projection crossing several days drifts by
+roughly that break per day crossed.
+
+**The status column** is the whole reading in one word:
+
+| Word | Means | Colour |
+|---|---|---|
+| `done` | The candle has been and gone | Text colour |
+| `NOW` | The count is standing on that number this minute | Lime |
+| `due` | Still ahead | Orange on the next one in each group, text colour after that |
+
+Orange on the next one only. A column where every future row shouted would have
+no *next* in it, and the rows behind are quiet on purpose — they are context.
+
+##### The week list
+
+All five timeframes count from the **same anchor, the week open**, which is the
+point of it. A 16:00 on the H4 row and a 16:00 on the M30 row are one instant,
+and two timeframes turning together there is the agreement the whole panel is
+for.
+
+It shows the numbers that have been and gone as well as the ones still ahead.
+That is what makes it a timetable rather than a countdown: what the market did
+at the last number is the only evidence there is about what the next one is
+worth.
+
+**Held to the numbers 9 to 33** — 9, 17, 26 and 33. Past 33 a week of any of
+these timeframes cannot reach the next number: 42 H4 candles is seven trading
+days, and a trading week holds thirty. Every further row would be a date in a
+later week sitting under this week's heading. With the compound numbers
+switched off the window ends at 26 instead, and the heading says so.
+
+**D1 is in the list knowing full well where its numbers land.** A trading week
+holds five D1 candles, so D1 9 is a week and a half out and D1 33 around seven
+weeks. Those rows are projections and will say `due` all week. They are there
+because the D1 count genuinely is running from this week's open, and where it
+arrives is worth knowing even when the answer is *not in this week*.
+
+##### The today list
+
+The other half, and strictly forward-looking: the numbers each timeframe has
+**not reached yet** whose candle still opens before the day is out. A number
+the count is standing on belongs to the segment block, which has far more to
+say about it; a number already gone is not upcoming.
+
+The day ends at the anchor plus twenty-four hours. The anchor is the same open
+the day block counts from, so the two cannot disagree about where today
+started — on a custom session anchor the heading reads `Sess` and the window is
+one session ahead.
+
+**It empties as the session runs**, and by design. Held to 9–33, M15 passes 33
+about two hours in and M30 by mid-morning, after which those groups drop out
+and the section eventually reads `none` for the rest of the day. That is honest
+— there is nothing left in that window — but it is not always what you want, so
+*... and past 33, as far as the day reaches* opens it up: M15 runs to 76, M30
+to 42, H1 to 17. The day boundary still bounds it either way, so the longest
+any group gets is eight rows.
+
+##### Placement
+
+Like the segment block it has no position of its own. It takes the count
+panel's corner and top edge and stands past the segment block, measured off
+that block's actual width so the two cannot overlap. Switch the segment block
+off and the schedule takes the place it would have stood in rather than leaving
+a hole.
+
+One thing it does change: the three blocks are centred on the **tallest** of
+them rather than on the count panel. The schedule is the long one — five
+timeframes of four numbers before the today list even starts — and centring on
+anything shorter would push its foot off the bottom of the chart. They still
+share one top edge.
+
 **A caution.** The count is arithmetic, not a signal. It tells you where a turn
 is *due*, never that one is happening and never which way. Nothing in the
 indicator acts on these numbers, and the EA does not read them.
@@ -813,6 +929,13 @@ in the file's own header as well:
 | Server time | The broker's clock | The exchange timezone |
 | Level labels | *Label shift right*, default `0` | *Label gap right of the last candle*, default `10` |
 | The Experts log | Line counts per grid, resolved sizes | No log; the panel carries what it can |
+
+**The schedule panel is MT5 only, for now.** The third block — the week and
+today timetables — has no Pine counterpart yet. Nothing about it is impossible
+there, but it reads bar times at arbitrary offsets on four other timeframes at
+once, which is the same constraint that reshaped `KihonSegmentStart()` below
+and needs the same kind of rewrite. The Pine port stays at two blocks until
+then.
 
 **The session timer is the one real loss.** MT5 keeps its start time in a
 terminal global variable keyed by the chart, which is what lets it survive the
