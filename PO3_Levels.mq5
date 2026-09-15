@@ -3,11 +3,11 @@
 //|                                                                  |
 //|  Draws PO3 (power of three) levels around the current price.     |
 //|                                                                  |
-//|  Every PO3 number from 3 to 19683 has its own checkbox and its   |
+//|  Every PO3 number from 1 to 19683 has its own checkbox and its   |
 //|  own colour. Tick as many as you like; the chart refreshes on    |
 //|  the selection. Width and style follow the magnitude, so the     |
 //|  bigger numbers read as the stronger levels:                     |
-//|        3, 9, 27          thin, dotted                            |
+//|        1, 3, 9, 27       thin, dotted                            |
 //|        81, 243           thin, solid                             |
 //|        729, 2187         medium, solid                           |
 //|        6561, 19683       thick, solid                            |
@@ -15,6 +15,13 @@
 //|  Levels come from the workbook's "All PO3" sheet, which is       |
 //|  multiplier x 3^power for powers 1..15, divided by the scale     |
 //|  divisor.                                                        |
+//|                                                                  |
+//|  1 is the exception and the only grid off by default. It is      |
+//|  3^0, the power the sheet starts one above, and at scale 1 it    |
+//|  is every whole number - on gold a line per dollar. That is the  |
+//|  floor the nest stands on rather than a level to trade, so it    |
+//|  is there to be ticked deliberately, for reading where price     |
+//|  sits inside a 3 cell, and not to be left on.                    |
 //|                                                                  |
 //|  Scale 1 gives whole numbers and is the default: gold levels     |
 //|  land on 4374, 4455, 4536 and so on, the sheet's raw figures     |
@@ -70,11 +77,11 @@
 //|   19683  around 2950 -> 2755.62 .. 3149.28   (row 40, x14..16)   |
 //+------------------------------------------------------------------+
 #property copyright "PO3 Levels"
-#property version   "1.39"
+#property version   "1.40"
 //--- Shown in the Navigator and in the properties dialog. The indicator does
 //--- two things now, and a name that says only "PO3 Levels" undersells half of
 //--- it to anyone reading the list.
-#property description "Power of Three support and resistance levels on gold, by checkbox from 3 to 19683."
+#property description "Power of Three support and resistance levels on gold, by checkbox from 1 to 19683."
 #property description "Also counts candles from the year, month, week and day opens and marks the"
 #property description "Ichimoku kihon suchi numbers on that count, and times the ones this week"
 #property description "still has to come. Draws only - places no orders."
@@ -97,7 +104,10 @@ input bool   InpLinesBehind = false; // Draw lines behind the candles
 
 input group "Labels";
 input bool   InpShowLabels  = true; // Write the PO3 number on each line
-input int    InpLabelMinPO3 = 3;    // Label only levels of PO3 >= this
+//--- The default of 3 also leaves the optional 1 grid unlabelled, which is
+//--- what you want: its levels are a dollar apart and a column of 1s on top of
+//--- each other says nothing the line spacing does not.
+input int    InpLabelMinPO3 = 3;    // Label only levels of PO3 >= this (1 to label the 1 grid)
 input int    InpFontSize    = 7;    // Label text size
 input int    InpLabelShift  = 0;    // Label shift right, in bars (0 = at the last bar)
 
@@ -269,6 +279,11 @@ input group "PO3 levels to show";
 //--- level's strength is meant to be read from how many grids agree on it, which
 //--- is only visible with all of them drawn. Untick the fine ones for a quieter
 //--- chart; the levels that remain do not move.
+//--- 1 = 3^0, the one grid off by default: at scale 1 it is every whole
+//--- number, which on gold is a line per dollar. Tick it to see where price
+//--- sits inside a 3 cell; leaving it on buries the chart.
+input bool  InpUse_1     = false;              // 1      - show
+input color InpCol_1     = clrDimGray;         // 1      - colour
 input bool  InpUse_3     = true;               // 3      - show
 input color InpCol_3     = clrGray;            // 3      - colour
 input bool  InpUse_9     = true;               // 9      - show
@@ -314,7 +329,7 @@ input color InpCol_19683 = clrCrimson;         // 19683  - colour
 //--- numbers get a row in the timetable are two decisions that only happen to
 //--- agree today.
 #define KIHON_MAIN_LAST  33
-#define PO3_COUNT   9
+#define PO3_COUNT   10
 
 //--- resolved table, built in OnInit, ascending by PO3 number
 int             g_po3[PO3_COUNT];
@@ -463,6 +478,7 @@ int OnInit()
                (int)MathMax(5, MathMin(20, InpFontSize)));
 
    g_n = 0;                                  // ascending, so g_po3[0] is finest
+   AddPO3(InpUse_1,     1,     InpCol_1);
    AddPO3(InpUse_3,     3,     InpCol_3);
    AddPO3(InpUse_9,     9,     InpCol_9);
    AddPO3(InpUse_27,    27,    InpCol_27);
@@ -485,7 +501,7 @@ int OnInit()
       return(INIT_SUCCEEDED);
      }
 
-   //--- Freeze guard. The clamp alone caps nine ticked grids at 1800 candidate
+   //--- Freeze guard. The clamp alone caps ten ticked grids at 2000 candidate
    //--- levels, which MT5 handles. Deliberately no further trim on top: quietly
    //--- rewriting the count would make the input mean something other than what
    //--- it says, and the warning would sit in a log nobody is watching.
@@ -493,7 +509,10 @@ int OnInit()
 
    //--- Powers of three nest, so the finest ticked grid's cell boundaries are a
    //--- superset of every coarser one. Tracking its cell is enough to know when
-   //--- any ticked level would move.
+   //--- any ticked level would move. With the 1 grid ticked that cell is a
+   //--- dollar wide at scale 1, so the rebuild runs on every dollar of travel
+   //--- rather than every three - which is the honest cost of drawing it, and
+   //--- another reason it is not on by default.
    g_finest = g_po3[0];
 
    string names = "";

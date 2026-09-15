@@ -5,7 +5,9 @@
 //  Same instrument, same arithmetic, on TradingView instead of MetaTrader:
 //
 //    · Power of Three levels around price, one checkbox and one colour per
-//      PO3 number from 3 to 19683, merged so the highest number owns a level
+//      PO3 number from 1 to 19683, merged so the highest number owns a level
+//      (1 is 3^0 and the only grid off by default - at scale 1 it is every
+//      whole number, a line per dollar on gold)
 //    · Candles counted from the year, month, week and day opens, with the
 //      Ichimoku kihon suchi numbers marked on that count
 //    · The count panel, the nested M1 count, and the segment block that
@@ -22,8 +24,9 @@
 //    · Drawing budget. Pine allows 500 lines and 500 labels per script, where
 //      MT5 has no practical ceiling. "Levels each side of price" is therefore
 //      clamped to 25 rather than 100, which caps nine ticked grids at 450
-//      lines. Level labels have their own budget, and the panel says so when
-//      it bites rather than dropping them quietly.
+//      lines, and ten - the nine plus the optional 1 - at the 480 the level
+//      loop stops drawing at. Level labels have their own budget, and the
+//      panel says so when it bites rather than dropping them quietly.
 //    · No z-order. Pine drawings are always in front of the candles, so
 //      "Draw lines behind the candles" has no equivalent and is not offered.
 //      The kihon vertical lines are drawn dotted and dimmed instead.
@@ -328,16 +331,20 @@ InpScale    = input.float(1.0, "Scale divisor (1 = whole numbers, 100 = workbook
      minval = 0.000001, group = gGrid)
 // Pine allows 500 lines per script where MT5 has no practical ceiling, so the
 // MQL's 1..100 becomes 1..25: nine ticked grids at 25 each side is 450 lines,
-// which fits with room left for the kihon marks.
+// which fits with room left for the kihon marks. Ticking the optional 1 grid
+// as well puts the worst case at 500, above the 480 the loop stops at, so drop
+// this below 25 if you want all ten grids drawn whole.
 InpEachSide = input.int(3, "Levels each side of price", minval = 1, maxval = 25,
      group = gGrid, tooltip = "Applies per ticked grid. Capped at 25 by Pine's " +
      "500-line budget, where the MetaTrader build allows 100.")
 
 gLbl = "Labels"
 InpShowLabels  = input.bool(true, "Write the PO3 number on each line", group = gLbl)
-InpLabelMinPO3 = input.int(3, "Label only levels of PO3 >=", minval = 3, maxval = 19683,
+InpLabelMinPO3 = input.int(3, "Label only levels of PO3 >=", minval = 1, maxval = 19683,
      group = gLbl, tooltip = "Every label shares one time anchor, so raise this " +
-     "if the fine grids stack digits.")
+     "if the fine grids stack digits. The default of 3 leaves the optional 1 " +
+     "grid unlabelled, which is what you want - its levels are a dollar apart " +
+     "and a column of 1s says nothing the line spacing does not.")
 InpFontSize    = input.string(size.tiny, "Label text size", group = gLbl,
      options = [size.tiny, size.small, size.normal, size.large, size.huge])
 InpLabelShift  = input.int(10, "Label gap right of the last candle, in bars",
@@ -428,6 +435,11 @@ InpSegH1   = input.bool(true, "Segments inside a kihon H1 candle", group = gSeg)
 // is only visible with all of them drawn. Untick the fine ones for a quieter
 // chart; the levels that remain do not move.
 gPO3 = "PO3 levels to show"
+// 1 = 3^0, the one grid off by default: at scale 1 it is every whole number,
+// which on gold is a line per dollar. Tick it to see where price sits inside a
+// 3 cell; leaving it on buries the chart.
+InpUse_1     = input.bool(false, "1 — show",     group = gPO3, inline = "p1")
+InpCol_1     = input.color(#696969, "",          group = gPO3, inline = "p1")
 InpUse_3     = input.bool(true,  "3 — show",     group = gPO3, inline = "p3")
 InpCol_3     = input.color(#808080, "",          group = gPO3, inline = "p3")
 InpUse_9     = input.bool(true,  "9 — show",     group = gPO3, inline = "p9")
@@ -740,11 +752,11 @@ if barstate.islast
     // ONCE and belongs to the HIGHEST ticked PO3 number that lands on it.
     // Grids are walked ascending, so a later grid always outranks an earlier
     // one and ownership comes out order-independent.
-    po3s = array.from(3, 9, 27, 81, 243, 729, 2187, 6561, 19683)
-    ons  = array.from(InpUse_3, InpUse_9, InpUse_27, InpUse_81, InpUse_243,
-         InpUse_729, InpUse_2187, InpUse_6561, InpUse_19683)
-    cols = array.from(InpCol_3, InpCol_9, InpCol_27, InpCol_81, InpCol_243,
-         InpCol_729, InpCol_2187, InpCol_6561, InpCol_19683)
+    po3s = array.from(1, 3, 9, 27, 81, 243, 729, 2187, 6561, 19683)
+    ons  = array.from(InpUse_1, InpUse_3, InpUse_9, InpUse_27, InpUse_81,
+         InpUse_243, InpUse_729, InpUse_2187, InpUse_6561, InpUse_19683)
+    cols = array.from(InpCol_1, InpCol_3, InpCol_9, InpCol_27, InpCol_81,
+         InpCol_243, InpCol_729, InpCol_2187, InpCol_6561, InpCol_19683)
 
     raws  = array.new_int()
     owner = array.new_int()
@@ -773,7 +785,7 @@ if barstate.islast
             px  = raw / InpScale
 
             // Width and style follow magnitude, so the bigger numbers read as
-            // the stronger levels: 3/9/27 thin dotted, 81/243 thin solid,
+            // the stronger levels: 1/3/9/27 thin dotted, 81/243 thin solid,
             // 729/2187 medium, 6561/19683 thick.
             w   = po3 >= 6561 ? 3 : po3 >= 729 ? 2 : 1
             sty = po3 <= 27 ? line.style_dotted : line.style_solid

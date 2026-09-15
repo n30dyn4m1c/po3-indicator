@@ -5,12 +5,17 @@
 [![Language](https://img.shields.io/badge/Language-MQL5-orange.svg)](https://www.mql5.com/)
 [![Also](https://img.shields.io/badge/Also-Pine%20Script%20v5-green.svg)](https://www.tradingview.com/pine-script-docs/)
 
-**MetaTrader 5 indicator that reads gold in price and in time: Power of Three (PO3) support and resistance levels, with a checkbox per PO3 number from 3 to 19683, and Ichimoku kihon suchi counts of the candles since the year, month, week and day opened. Ships as a TradingView Pine v5 port of the same indicator, and with an Expert Advisor that scalps rejections of the 9 and 27 grids.**
+**MetaTrader 5 indicator that reads gold in price and in time: Power of Three (PO3) support and resistance levels, with a checkbox per PO3 number from 1 to 19683, and Ichimoku kihon suchi counts of the candles since the year, month, week and day opened. Ships as a TradingView Pine v5 port of the same indicator, and with an Expert Advisor that scalps rejections of the 9 and 27 grids.**
 
 **Price.** Levels are multiples of powers of three — 3, 9, 27, 81, 243, 729,
 2187, 6561, 19683 — drawn around current price. Nothing is fitted, optimised or
 inferred from price action: a level either is a multiple of a power of three or
 it is not.
+
+There is a tenth checkbox below those nine, off by default: **1**, which is
+3⁰. At scale 1 it is every whole number — on gold, a line per dollar — so it
+is the floor the nest stands on rather than a level to trade. Tick it when you
+want to see where price sits inside a 3 cell, and untick it again.
 
 **Time.** The same chart counts candles from the market open and marks the
 kihon suchi numbers — 9, 17, 26, 33, 42, 51, 65, 76, 129, 172, 226, 257 — on
@@ -34,7 +39,7 @@ on the time theory (*jikan ron*) of Goichi Hosoda's Ichimoku Kinko Hyo.
 
 ## Features
 
-- One checkbox per PO3 number from 3 to 19683, each with its own colour
+- One checkbox per PO3 number from 3 to 19683, each with its own colour, plus an optional 1 (3⁰) grid off by default
 - Levels drawn around current price, a configurable count each side
 - Overlapping levels merge and take the highest PO3 number that lands on them
 - Width and style follow magnitude, so stronger levels read as stronger lines
@@ -183,9 +188,10 @@ it. What the platform changes is covered under
 | Levels each side of price | `3` | Applies per ticked grid; clamped to 1–100 |
 | Draw lines behind the candles | `false` | Fine grids sit where the candles are, so the default draws in front |
 | Write the PO3 number on each line | `true` | |
-| Label only levels of PO3 >= | `3` | Everything is labelled; every label shares one time anchor, so raise this if the fine grids stack digits |
+| Label only levels of PO3 >= | `3` | Everything from 3 up is labelled; the default leaves the optional 1 grid unlabelled, and every label shares one time anchor, so raise this if the fine grids stack digits |
 | Label text size | `7` | Clamped to 5–20 |
 | Label shift right, in bars | `0` | `0` anchors at the last bar, always on screen |
+| Show 1 | `false` | 3⁰, every whole number at scale 1 — a line per dollar on gold. Off by default; tick it to read where price sits inside a 3 cell |
 | Show 3 … Show 19683 | all on | One checkbox and one colour per PO3 number; untick the fine grids for a quieter chart |
 | Show time left on the current candle | `true` | Printed beside the developing candle, level with price |
 | Bars right of the developing candle | `1` | `0` puts it beside the candle, ending at it; needs chart shift on to sit further right |
@@ -239,7 +245,7 @@ it. What the platform changes is covered under
 | ... and past 33, as far as the day reaches | `false` | Lets the today list run to M15 76, M30 42, H1 17 instead of stopping at 33 |
 | Gap from the block before it, in pixels | `8` | Its only placement input — it follows the block to its left |
 
-Width and style are derived from magnitude: 3/9/27 thin dotted, 81/243 thin
+Width and style are derived from magnitude: 1/3/9/27 thin dotted, 81/243 thin
 solid, 729/2187 medium, 6561/19683 thick.
 
 The Experts log prints the resolved selection and the line count each grid
@@ -1145,7 +1151,7 @@ in the file's own header as well:
 | | MetaTrader 5 | TradingView |
 |---|---|---|
 | Drawing budget | No practical ceiling | 500 lines and 500 labels per script |
-| *Levels each side of price* | 1–100 | **1–25**, so nine grids fit in 450 lines |
+| *Levels each side of price* | 1–100 | **1–25**, so nine grids fit in 450 lines; all ten, with the optional 1, reach the loop's 480 cap |
 | Lines behind the candles | An input | No z-order in Pine; not offered |
 | Panel placement | Corner plus a pixel X and Y | One of nine table positions |
 | The two blocks | Two bordered blocks, measured apart | One table, a spacer column between |
