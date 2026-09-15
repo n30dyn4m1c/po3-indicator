@@ -44,11 +44,13 @@
 //|                                                                  |
 //|  It also counts candles from the market open and marks the kihon |
 //|  suchi numbers on that count - time levels the way the grid is   |
-//|  price levels. The numbers, and why each one is what it is, live |
-//|  in PO3_Kihon.mqh. The panel counts the same open on H1, M30,    |
-//|  M15, M5 and M1 at once, so the timeframes can be read against   |
-//|  each other. Nothing here acts on those numbers; they mark where |
-//|  a turn is due, not that one is happening.                       |
+//|  price levels. The numbers, and why each one is what it is, are  |
+//|  set out in the KIHON SUCHI section below, which was a separate  |
+//|  PO3_Kihon.mqh until the indicator that shared it was removed.   |
+//|  The panel counts the same open on H1, M30, M15, M5 and M1 at    |
+//|  once, so the timeframes can be read against each other.         |
+//|  Nothing here acts on those numbers; they mark where a turn is   |
+//|  due, not that one is happening.                                 |
 //|                                                                  |
 //|  When an H4 or an H1 count lands ON a kihon number - a lime row  |
 //|  in that panel - the candle carrying the number is itself a      |
@@ -71,13 +73,21 @@
 //|  are projected and skip the weekend but not a broker's daily     |
 //|  break.                                                          |
 //|                                                                  |
+//|  That block reads in a fixed offset from UTC rather than in the  |
+//|  broker's clock, +10 by default, and on the 12-hour clock - the  |
+//|  one part of the chart whose times are meant to be copied into   |
+//|  a diary, so the one part written the way a diary is. The        |
+//|  offset is display only: which candle carries a number, and      |
+//|  whether it is done, NOW or due, are worked out from the         |
+//|  broker's own clock and do not move with it.                     |
+//|                                                                  |
 //|  Verified against the PO3 workbook's Gold sheet, 14 Mar 2025:    |
 //|    2187  around 2900 -> 2799.36 .. 3083.67   (row 35, x128..141) |
 //|    6561  around 2950 -> 2755.62 .. 3149.28   (row 39, x42..48)   |
 //|   19683  around 2950 -> 2755.62 .. 3149.28   (row 40, x14..16)   |
 //+------------------------------------------------------------------+
 #property copyright "PO3 Levels"
-#property version   "1.40"
+#property version   "1.41"
 //--- Shown in the Navigator and in the properties dialog. The indicator does
 //--- two things now, and a name that says only "PO3 Levels" undersells half of
 //--- it to anyone reading the list.
@@ -613,7 +623,8 @@ input color            InpSessionOverColor = clrTomato;          // Text colour 
 input group "Candle count";
 //--- Ichimoku's counting rule, not a zero-based index: the candle the count
 //--- starts on is candle 1, so a 26 count spans 26 candles inclusive. That is
-//--- what makes the compound numbers overlap by one. See PO3_Kihon.mqh.
+//--- what makes the compound numbers overlap by one. See the KIHON SUCHI
+//--- section at the top of this file.
 //---
 //--- The anchor set here feeds both the on-chart marks and the panel, so the
 //--- two can never disagree about where the count started. Each has its own
@@ -1414,8 +1425,9 @@ void UpdateSession()
 //| Counting is inclusive at both ends, which is the Ichimoku rule   |
 //| and the reason the compound numbers overlap by one candle: the   |
 //| candle sitting at the anchor is candle 1, so the developing      |
-//| candle is (shift of the anchor) + 1. PO3_Kihon.mqh has the       |
-//| numbers themselves and where each one comes from.                |
+//| candle is (shift of the anchor) + 1. The KIHON SUCHI section at  |
+//| the top of this file has the numbers themselves and where each   |
+//| one comes from.                                                  |
 //+------------------------------------------------------------------+
 
 //--- The panel is a ladder of calendar periods, each counted in the candles

@@ -14,10 +14,15 @@
 //      counts the minutes inside a kihon H4 or H1 candle
 //    · Countdown on the developing candle, and the session screen-time clock
 //
-//  Pine has no #include, so the two MQL headers are inlined below rather than
-//  referenced: PO3_Kihon.mqh becomes the "Kihon suchi" section and
-//  PO3_Core.mqh the "PO3 level maths" section, both kept whole and kept first,
-//  so the port can be read against the originals function by function.
+//  Pine has no #include, so the MQL side's shared maths is inlined below
+//  rather than referenced: the "Kihon suchi" section and the "PO3 level
+//  maths" section, both kept whole and kept first, so the port can be read
+//  against the originals function by function.
+//
+//  Those two were PO3_Kihon.mqh and PO3_Core.mqh when this port was written.
+//  PO3_Core.mqh is still a header, shared with the EA; PO3_Kihon.mqh was
+//  folded into PO3_Levels.mq5 when the second indicator that shared it was
+//  removed, so its MQL5 counterpart is now a section of that file too.
 //
 //  WHAT THE PLATFORM CHANGES. Everything here is a Pine limit, not a decision:
 //

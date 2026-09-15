@@ -73,6 +73,7 @@ on the time theory (*jikan ron*) of Goichi Hosoda's Ichimoku Kinko Hyo.
 - A nested M1 count that restarts at every kihon suchi H1 candle
 - A second block beside that panel, counting M15, M5 and M1 inside any H4 or H1 candle standing on a kihon number
 - A third block beside those, timetabling this week's kihon suchi candles on D1 down to M15 and the ones still to come today on H1 down to M15
+- That timetable read in any fixed UTC offset — Papua New Guinea by default — and on the 12-hour clock, so the times go straight into a diary
 - Session timer for capping screen time, unaffected by switching timeframe
 - Redraws only when price crosses a grid cell or a new bar opens, not on every tick
 
@@ -1022,6 +1023,15 @@ in the file's own header as well:
 | Server time | The broker's clock | The exchange timezone |
 | Level labels | *Label shift right*, default `0` | *Label gap right of the last candle*, default `10` |
 | The Experts log | Line counts per grid, resolved sizes | No log; the panel carries what it can |
+
+**The 1 grid is MT5 only in most of what it does.** Both builds carry the
+3⁰ = 1 checkbox, first in the list and off by default, but only MT5 draws it
+the way this README describes it: the near-black `48,48,48`, the M1-only rule,
+and the triple window that makes it span what the 3 grid spans. Pine still has
+it as an ordinary tenth grid in a plain grey, on every timeframe, with the same
+window as the rest. Ticking it there does something coarser than ticking it in
+MT5 — which is worth knowing before reading the two charts against each other,
+since this is the one grid where they do not agree line for line.
 
 **The schedule panel is MT5 only, for now.** The third block — the week and
 today timetables — has no Pine counterpart yet. Nothing about it is impossible
