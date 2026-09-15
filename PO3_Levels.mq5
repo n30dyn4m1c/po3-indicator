@@ -767,18 +767,21 @@ input bool   InpSchedTzBoth  = false;  // ... and keep the server time beside it
 input bool   InpSchedAmPm    = true;   // Write the times as AM / PM, not 24-hour
 
 input group "PO3 levels to show";
-//--- Every grid is on by default: the model is the whole nest of powers, and a
-//--- level's strength is meant to be read from how many grids agree on it, which
-//--- is only visible with all of them drawn. Untick the fine ones for a quieter
-//--- chart; the levels that remain do not move.
-//--- 3^0 = 1, the bottom of the ladder. At scale 1 it is every whole number,
-//--- so on gold it draws a line per dollar and the 3 grid's cells each get
-//--- their two interior lines - the finest subdivision the model has.
+//--- Every grid from 3 up is on by default: the model is the whole nest of
+//--- powers, and a level's strength is meant to be read from how many grids
+//--- agree on it, which is only visible with all of them drawn. Untick the fine
+//--- ones for a quieter chart; the levels that remain do not move.
+//--- 3^0 = 1, the bottom of the ladder, and the one grid OFF by default. At
+//--- scale 1 it is every whole number, so on gold it draws a line per dollar
+//--- and the 3 grid's cells each get their two interior lines - the finest
+//--- subdivision the model has, and more than a chart wants standing on it
+//--- unasked. Tick it when the question is where inside a 3 cell price is.
 //---
-//--- M1 ONLY. Ticking it on any higher timeframe draws nothing, by the rule in
-//--- OnInit rather than by anything in this input - a dollar grid is the size
-//--- of an M1 candle and a rounding error to an H1 one. The Experts log says
-//--- so on load rather than leaving a ticked box drawing nothing.
+//--- M1 ONLY, on top of being off by default. Ticking it on any higher
+//--- timeframe draws nothing, by the rule in OnInit rather than by anything in
+//--- this input - a dollar grid is the size of an M1 candle and a rounding
+//--- error to an H1 one. The Experts log says so on load rather than leaving a
+//--- ticked box drawing nothing.
 //---
 //--- It is drawn very faint on purpose. MT5 gives an OBJ_HLINE no
 //--- transparency, so faintness is the colour and nothing else - and since the
@@ -793,7 +796,7 @@ input group "PO3 levels to show";
 //--- On a LIGHT background invert the thinking rather than nudging this: a
 //--- near-black is the loudest line on a white chart, not the quietest, and
 //--- the faint end there is a near-white like 220,220,220.
-input bool  InpUse_1     = true;               // 1      - show (M1 only)
+input bool  InpUse_1     = false;              // 1      - show (M1 only)
 input color InpCol_1     = C'48,48,48';        // 1      - colour
 input bool  InpUse_3     = true;               // 3      - show
 input color InpCol_3     = clrGray;            // 3      - colour
