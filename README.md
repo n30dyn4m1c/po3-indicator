@@ -18,11 +18,16 @@ cell on the chart gets its two interior lines — the finest subdivision the
 model has, and the one that says where inside a 3 range price is sitting.
 
 It is drawn **very faint**, and that is the whole of its design. MT5 gives a
-horizontal line no transparency, so faintness is the colour and nothing else:
-the default is a near-background grey that reads as texture inside a 3 cell
-rather than as a level competing with it. On a light chart background you will
-want to lighten it, because there a dark grey is the loudest line on the chart
-rather than the quietest.
+horizontal line no transparency, so faintness is the colour and nothing else —
+and since the colour *is* the effect, the default is tuned for a black chart:
+`48,48,48`, a near black that separates from the background by just enough to
+read as texture inside a 3 cell rather than as a level competing with it.
+Below about `32` it stops resolving on most monitors; above about `80` it
+starts arguing with the 3 grid it is meant to sit underneath.
+
+On a light background, invert the thinking rather than nudging that number. A
+near-black is the loudest line on a white chart, not the quietest, and the
+faint end there is a near-white like `220,220,220`.
 
 **Time.** The same chart counts candles from the market open and marks the
 kihon suchi numbers — 9, 17, 26, 33, 42, 51, 65, 76, 129, 172, 226, 257 — on

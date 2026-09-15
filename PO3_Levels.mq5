@@ -776,13 +776,20 @@ input group "PO3 levels to show";
 //--- their two interior lines - the finest subdivision the model has.
 //---
 //--- It is drawn very faint on purpose. MT5 gives an OBJ_HLINE no
-//--- transparency, so faintness is the colour and nothing else: the default is
-//--- a near-background grey, one step off black, which reads as texture inside
-//--- a 3 cell rather than as a level competing with it. Raise it if your chart
-//--- background is light - on white, a dark grey is the LOUDEST line on the
-//--- chart, not the quietest.
+//--- transparency, so faintness is the colour and nothing else - and since the
+//--- colour IS the effect, it is tuned for a black chart: 48,48,48 is a near
+//--- black that separates from the background by just enough to read as
+//--- texture inside a 3 cell rather than as a level competing with it.
+//---
+//--- Below about 32 it stops resolving on most monitors and the grid is there
+//--- in name only; above about 80 it starts arguing with the 3 grid it is
+//--- meant to sit underneath. That is the usable band on black.
+//---
+//--- On a LIGHT background invert the thinking rather than nudging this: a
+//--- near-black is the loudest line on a white chart, not the quietest, and
+//--- the faint end there is a near-white like 220,220,220.
 input bool  InpUse_1     = true;               // 1      - show
-input color InpCol_1     = C'70,70,70';        // 1      - colour
+input color InpCol_1     = C'48,48,48';        // 1      - colour
 input bool  InpUse_3     = true;               // 3      - show
 input color InpCol_3     = clrGray;            // 3      - colour
 input bool  InpUse_9     = true;               // 9      - show
