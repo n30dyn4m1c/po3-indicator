@@ -780,6 +780,18 @@ input bool  InpSchedDay  = true;   // Still ahead today, H1 down to M15
 //--- keeps it saying something all day at the cost of a longer block.
 input bool  InpSchedDayAll = false; // ... and past 33, as far as the day reaches
 input int   InpSchedGap  = 8;      // Gap from the block before it, in pixels
+//--- The times are the broker's by default, which is the clock the chart is
+//--- drawn in but rarely the one a diary is kept in. Tick this and the block
+//--- reads in a fixed offset from UTC instead - 10 for Papua New Guinea, which
+//--- keeps no daylight saving, so a fixed offset is the whole of the rule
+//--- there. The offset is applied to the DISPLAY only: which candle carries a
+//--- number, and whether it is done, NOW or due, are worked out from the
+//--- broker's own clock and do not move.
+input bool   InpSchedTz      = true;   // Show the times in a fixed UTC offset
+input double InpSchedTzHours = 10.0;   // ... that offset, in hours (10 = PNG)
+//--- Half-hour and quarter-hour zones exist - India is 5.5, Chatham 12.75 - so
+//--- this is hours as a decimal rather than a whole number.
+input bool   InpSchedTzBoth  = false;  // ... and keep the server time beside it
 
 input group "PO3 levels to show";
 //--- Every grid is on by default: the model is the whole nest of powers, and a
@@ -2030,6 +2042,87 @@ bool SegAdd(const ENUM_TIMEFRAMES tf, const bool withDay, const bool gap,
 //+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
+//| How far the trade server runs ahead of UTC, in seconds.          |
+//|                                                                  |
+//| TimeTradeServer rather than TimeCurrent, and the distinction is  |
+//| the whole reason this has a comment. TimeCurrent is the time of  |
+//| the last quote, so on a closed market it is stuck at Friday's    |
+//| close - and the block read on Sunday would work the offset out   |
+//| as two days. TimeTradeServer is calculated rather than quoted    |
+//| and keeps running through the weekend, which is exactly when a   |
+//| week's timetable is worth looking at.                            |
+//|                                                                  |
+//| Read fresh each time rather than cached at load. A broker on a   |
+//| zone that keeps daylight saving shifts by an hour twice a year,  |
+//| and an indicator left on a chart across that weekend would go on |
+//| showing the old offset until someone reloaded it.                |
+//|                                                                  |
+//| Rounded to the minute. The two clocks are read a moment apart    |
+//| and no broker offset has ever been a matter of seconds.          |
+//+------------------------------------------------------------------+
+long SchedServerOffset()
+  {
+   long d = (long)TimeTradeServer() - (long)TimeGMT();
+
+   //--- Rounded half away from zero, so a -7199 does not become -119 minutes.
+   long m = (d >= 0) ? (d + 30) / 60 : (d - 30) / 60;
+
+   return(m * 60);
+  }
+
+//--- A server time in the display zone: back to UTC, then out to the offset.
+datetime SchedTzShift(const datetime srv)
+  {
+   if(!InpSchedTz || srv <= 0)
+      return(srv);
+
+   return((datetime)((long)srv - SchedServerOffset()
+                     + (long)MathRound(InpSchedTzHours * 3600.0)));
+  }
+
+//--- The offset written the way a timezone is - "UTC+10", "UTC+5:30" - so the
+//--- block says which clock it is in rather than leaving it to be guessed.
+string SchedTzTag()
+  {
+   if(!InpSchedTz)
+      return("server");
+
+   long m = (long)MathRound(InpSchedTzHours * 60.0);
+   string sign = (m < 0) ? "-" : "+";
+   if(m < 0)
+      m = -m;
+
+   return((m % 60 == 0)
+          ? StringFormat("UTC%s%d", sign, (int)(m / 60))
+          : StringFormat("UTC%s%d:%02d", sign, (int)(m / 60), (int)(m % 60)));
+  }
+
+//--- A heading's own time, converted and tagged the same way the rows are.
+string SchedTzStamp(const datetime srv, const int fmt)
+  {
+   return((srv > 0) ? TimeToString(SchedTzShift(srv), fmt) : "-");
+  }
+
+//--- Width of the time column. A converted stamp is "~Thu 24/09 00:00", and
+//--- with the server time kept beside it a " (00:00)" follows.
+int SchedStampWidth()
+  {
+   //--- Both flags, because the bracket is only ever written when there is a
+   //--- conversion to write it beside. Widening on InpSchedTzBoth alone would
+   //--- pad every row out to a column nothing is ever put in.
+   return((InpSchedTzBoth && InpSchedTz) ? 24 : 16);
+  }
+
+//--- Left-justify to a width StringFormat cannot take as a variable.
+string SchedPad(const string s, const int w)
+  {
+   string r = s;
+   for(int i = StringLen(s); i < w; i++)
+      r += " ";
+   return(r);
+  }
+
+//+------------------------------------------------------------------+
 //| One schedule row: which timeframe, which number, when that       |
 //| candle opens, and whether it has been and gone.                  |
 //|                                                                  |
@@ -2080,16 +2173,26 @@ string SchedRow(const ENUM_TIMEFRAMES tf, const int k, const int c,
          when = SchedProject(_Symbol, iTime(_Symbol, tf, 0), k - c,
                              PeriodSeconds(tf));
 
-      stamp = ((state == 2) ? "~" : " ") + SchedWhen(when);
+      stamp = ((state == 2) ? "~" : " ") + SchedWhen(SchedTzShift(when));
+
+      //--- The broker's own clock beside it, time of day only. The date is
+      //--- already on the converted stamp and a second one would double the
+      //--- width of the column to say the same thing twice - the two differ
+      //--- by hours, so they disagree about the date at most once a day.
+      if(InpSchedTzBoth && InpSchedTz)
+         stamp += " (" + TimeToString(when, TIME_MINUTES) + ")";
+
       tail  = (state == 0) ? "done" : ((state == 1) ? "NOW" : "due");
      }
 
-   //--- The stamp is padded to the width of a full one - "~Thu 24/09 00:00" -
-   //--- so the status column behind it lines up whether the row carries a time
-   //--- or one of the two excuses for not having one.
-   return(StringFormat("%s %-3s %3d %-16s %-4s",
+   //--- The stamp is padded to the width of a full one - "~Thu 24/09 00:00",
+   //--- or that plus " (00:00)" when the server time rides along - so the
+   //--- status column behind it lines up whether the row carries a time or one
+   //--- of the two excuses for not having one.
+   return(StringFormat("%s %-3s %3d %s %-4s",
                        (tf == (ENUM_TIMEFRAMES)_Period) ? ">" : " ",
-                       head ? TfNameOf(tf) : "", k, stamp, tail));
+                       head ? TfNameOf(tf) : "", k,
+                       SchedPad(stamp, SchedStampWidth()), tail));
   }
 
 //+------------------------------------------------------------------+
@@ -2252,9 +2355,9 @@ void SchedBuild(string &txt[], color &clr[], int &n)
       //--- would be promising a row the block cannot produce; asking the
       //--- active list for its last number at or below 33 gives 26 instead.
       PanelPush(txt, clr, n,
-                StringFormat("%-6s %d-%d from %s", "Week", SCH_FIRST,
+                StringFormat("%-6s %d-%d from %s  %s", "Week", SCH_FIRST,
                              KihonAtOrBelow(SCH_LAST, InpKihonCompound),
-                             (wk > 0) ? TimeToString(wk, TIME_DATE) : "-"),
+                             SchedTzStamp(wk, TIME_DATE), SchedTzTag()),
                 InpPanelColor);
 
       bool any = false;
@@ -2277,8 +2380,8 @@ void SchedBuild(string &txt[], color &clr[], int &n)
          PanelPush(txt, clr, n, "", InpPanelColor);
 
       PanelPush(txt, clr, n,
-                StringFormat("%-6s ahead from %s", sess ? "Sess" : "Day",
-                             (day > 0) ? TimeToString(day, TIME_MINUTES) : "-"),
+                StringFormat("%-6s ahead from %s  %s", sess ? "Sess" : "Day",
+                             SchedTzStamp(day, TIME_MINUTES), SchedTzTag()),
                 InpPanelColor);
 
       bool any = false;

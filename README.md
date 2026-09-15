@@ -234,6 +234,9 @@ it. What the platform changes is covered under
 | Still ahead today, H1 down to M15 | `true` | Only what has not happened yet, and only candles opening before the day is out |
 | ... and past 33, as far as the day reaches | `false` | Lets the today list run to M15 76, M30 42, H1 17 instead of stopping at 33 |
 | Gap from the block before it, in pixels | `8` | Its only placement input — it follows the block to its left |
+| Show the times in a fixed UTC offset | `true` | Off reads the broker's own clock, as the rest of the chart does |
+| ... that offset, in hours | `10.0` | `10` is Papua New Guinea, which keeps no daylight saving. Decimal, so half- and quarter-hour zones work: `5.5` India, `12.75` Chatham |
+| ... and keep the server time beside it | `false` | Appends the broker's time of day in brackets, widening the block by eight characters |
 
 Width and style are derived from magnitude: 1/3/9/27 thin dotted, 81/243 thin
 solid, 729/2187 medium, 6561/19683 thick.
@@ -608,20 +611,43 @@ The third block is that timetable. It stands beside the segment block, one gap
 further along, on the same corner and the same top edge.
 
 ```
-Week   9-33 from 2025.09.15        Day    ahead from 00:00
-  D1    9 ~Thu 25/09 00:00 due     > H1    9 ~Mon 15/09 08:00 due
-       17 ~Tue 07/10 00:00 due     >      17 ~Mon 15/09 16:00 due
-       26 ~Mon 20/10 00:00 due
-       33 ~Wed 29/10 00:00 due       M30   9 ~Mon 15/09 04:00 due
-                                          17 ~Mon 15/09 08:00 due
-  H4    9  Tue 16/09 08:00 done          26 ~Mon 15/09 12:30 due
-       17  Wed 17/09 16:00 NOW           33 ~Mon 15/09 16:00 due
-       26 ~Fri 19/09 04:00 due
-       33 ~Mon 22/09 08:00 due
+Week   9-33 from 2025.09.15  UTC+10    Day    ahead from 07:00  UTC+10
+  D1    9 ~Thu 25/09 07:00 due         > H1    9 ~Mon 15/09 15:00 due
+       17 ~Tue 07/10 07:00 due         >      17 ~Mon 15/09 23:00 due
+       26 ~Mon 20/10 07:00 due
+       33 ~Wed 29/10 07:00 due           M30   9 ~Mon 15/09 11:00 due
+                                              17 ~Mon 15/09 15:00 due
+  H4    9  Tue 16/09 15:00 done               26 ~Mon 15/09 19:30 due
+       17  Wed 17/09 23:00 NOW                33 ~Mon 15/09 23:00 due
+       26 ~Fri 19/09 11:00 due
+       33 ~Mon 22/09 15:00 due
 ```
 
 Both columns are one block on the chart; they are side by side here only to fit
-the page.
+the page. This is a broker on UTC+3 read in PNG time, which is why the D1 rows
+open at 07:00 rather than midnight — a trading day starts seven hours into the
+PNG calendar day.
+
+**The times are in whatever zone the block is set to**, named on each heading
+so it is never a guess. The default is `UTC+10`, Papua New Guinea, which keeps
+no daylight saving — so unlike London or New York it is a fixed offset all year
+and needs no rules. Untick *Show the times in a fixed UTC offset* and the
+headings read `server` and the times are the broker's, which is the clock every
+other part of the chart is drawn in.
+
+The conversion is **display only**. Which candle carries a number, and whether
+a row reads `done`, `NOW` or `due`, are worked out from the broker's clock and
+do not move — changing the offset re-letters the timetable without changing a
+single thing it is saying. The broker's own offset is not configured but
+measured, as `TimeTradeServer() − TimeGMT()` rounded to the minute, and it is
+read fresh on each rebuild rather than cached, so a broker that keeps daylight
+saving corrects itself on the weekend it shifts rather than going an hour wrong
+until the indicator is reloaded.
+
+Tick *and keep the server time beside it* to get both: `~Thu 25/09 07:00
+(00:00)`, the bracketed one being the broker's. Time of day only — the date is
+already on the stamp, and the two zones disagree about the date at most once a
+day.
 
 **Every time is a candle OPEN**, written as weekday, date and time of day. The
 month is in it because the D1 rows need it — a bare `Tue 07` under a heading
