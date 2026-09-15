@@ -279,11 +279,6 @@ input group "PO3 levels to show";
 //--- level's strength is meant to be read from how many grids agree on it, which
 //--- is only visible with all of them drawn. Untick the fine ones for a quieter
 //--- chart; the levels that remain do not move.
-//--- 1 = 3^0, the one grid off by default: at scale 1 it is every whole
-//--- number, which on gold is a line per dollar. Tick it to see where price
-//--- sits inside a 3 cell; leaving it on buries the chart.
-input bool  InpUse_1     = false;              // 1      - show
-input color InpCol_1     = clrDimGray;         // 1      - colour
 input bool  InpUse_3     = true;               // 3      - show
 input color InpCol_3     = clrGray;            // 3      - colour
 input bool  InpUse_9     = true;               // 9      - show
@@ -302,6 +297,21 @@ input bool  InpUse_6561  = true;               // 6561   - show
 input color InpCol_6561  = clrOrangeRed;       // 6561   - colour
 input bool  InpUse_19683 = true;               // 19683  - show
 input color InpCol_19683 = clrCrimson;         // 19683  - colour
+
+//--- 1 = 3^0, the one grid off by default: at scale 1 it is every whole
+//--- number, which on gold is a line per dollar. Tick it to see where price
+//--- sits inside a 3 cell; leaving it on buries the chart.
+//---
+//--- Last in the list, out of numerical order, and that is deliberate. MT5
+//--- stores a chart's indicator inputs POSITIONALLY, so an input inserted
+//--- among the existing ones shifts every stored value after it by a slot and
+//--- every chart already carrying this indicator reads colours as checkboxes
+//--- and checkboxes as colours - grids silently off, colours wrong, fewer
+//--- lines than before. Appended here, the nine saved slots keep their
+//--- meaning and only the two new ones start at their defaults. The registered
+//--- table is still built ascending in OnInit; only the dialog shows 1 last.
+input bool  InpUse_1     = false;              // 1      - show
+input color InpCol_1     = clrDimGray;         // 1      - colour
 
 #define PO3_PREFIX  "PO3_"
 //--- Level lines and their labels share a sub-prefix so the redraw sweep can
