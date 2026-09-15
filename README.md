@@ -211,8 +211,8 @@ it. What the platform changes is covered under
 | Number every candle, not just the kihon ones | `false` | Capped at the most recent 300 candles |
 | Show the count panel | `true` | |
 | Year block — MN1, W1, D1 | `true` | Months, weeks and trading days since 1 January |
-| Month block — D1, H4, H2, H1 | `true` | Since the 1st. H2 is the best-fitting row in the block at 252 candles |
-| Week block — H4, H2, H1, M30 | `true` | Since the week open |
+| Month block — D1, H4, H1 | `true` | Since the 1st |
+| Week block — H4, H1, M30 | `true` | Since the week open |
 | Day block — H1, M30, M15, M5, M1 | `true` | The whole intraday ladder on every chart period, plus the nested M1 row. Titled `Sess` and anchored to *Count from* when that is the custom time |
 | Corner (panel) | `CORNER_LEFT_UPPER` | Rows stack downward from an upper corner, upward from a lower one |
 | Centre it vertically | `true` | Worked out from chart height and row count; ignores Y |
@@ -361,12 +361,10 @@ Year   from 2026.01.01
 Month  from 2026.09.01
   D1        6  9 in 3
   H4       33  KS
-  H2       66  76 in 10
   H1      131  KS +2
 
 Week   from 2026.09.07
   H4        9  KS
-  H2       18  KS +1
   H1       35  KS +2
   M30      69  76 in 7
 
@@ -393,31 +391,20 @@ M30 candles, so the count runs through eleven of the twelve numbers and stops
 just short of 257 — it never runs off the end of the list; the week in H4 only
 reaches 30, using three.
 
-**H2 is the same fit one rung up.** A trading month is about 21 days, which is
-252 H2 candles — eleven numbers again, stopping just short of 257 again. The
-rule behind both is that a row reads best when *period ÷ timeframe* lands near
-250: far enough to reach the numbers, not so far it runs off the end. D1 over a
-year is the third at 252, so three of the four blocks now carry a row that
-spans their period exactly.
+**H2 is not counted anywhere.** It was on the month and the week and has been
+taken off both, so each of those blocks steps H4 straight to H1. What that
+costs is the middle of the month: H1 over a month is 504 candles, so it passes
+257 around the first of July and reads `past 257` for the rest of it, while D1
+at 21 candles only ever reaches 9 and 17 — no remaining row covers a month end
+to end. That is the trade, and it is worth knowing before putting a row back.
 
-What H2 is *for* in the month block is the half of the month the H1 row cannot
-speak to. H1 over a month is 504 candles, so it passes 257 around the first of
-July and reads `past 257` for the rest of it; D1 at 21 candles only ever
-reaches 9 and 17. Between a row that runs out and a row that barely starts, the
-month had no count covering it end to end.
-
-H2 is on the **week** as well, at 60 candles and six numbers — not the best fit
-there, M30 already is, but it fills the step from H4 (30 candles, three
-numbers) to H1 (120, eight), and the same H2 count then reads on both the week
-and the month.
-
-It is deliberately **not** on the day. Twelve H2 candles fit in a day, so the
-only number it could reach is 9, once, at 16:00 — and 2:1 nesting puts that on
-the same candle as H1 17, M30 33 and M15 65, every time, because `2k−1` carries
-a kihon number onto a kihon number. The row would fire once a session, always
-at an instant three other rows already mark, and a fourth lime row there makes
-the block look more agreed with itself without any more agreement being
-present. That is worse than saying nothing.
+It was never on the day, and the reason it was kept off there is the reason it
+is now off the others. Twelve H2 candles fit in a day, so the only number it
+could reach is 9, once, at 16:00 — and 2:1 nesting puts that on the same candle
+as H1 17, M30 33 and M15 65, every time, because `2k−1` carries a kihon number
+onto a kihon number. A row that fires at an instant three other rows already
+mark makes the block look more agreed with itself without any more agreement
+being present.
 
 **Year, month and week are fixed.** They say the same thing whatever period the
 chart is on, which is what makes them readable across a timeframe change — a
@@ -517,12 +504,10 @@ Year   from 2026.01.01       Kihon Suchi segments
 Month  from 2026.09.01
   D1        6  9 in 3
   H4       33  KS
-  H2       66  76 in 10
   H1      131  KS +2
 
 Week   from 2026.09.07
   H4        9  KS
-  H2       18  KS +1
   H1       35  KS +2
   M30      69  76 in 7
 
@@ -980,11 +965,6 @@ in the file's own header as well:
 | Server time | The broker's clock | The exchange timezone |
 | Level labels | *Label shift right*, default `0` | *Label gap right of the last candle*, default `10` |
 | The Experts log | Line counts per grid, resolved sizes | No log; the panel carries what it can |
-
-**The H2 rows are MT5 only.** The month and week blocks each gained an H2
-count; the Pine port still runs the three-row blocks it was written against, so
-the two panels no longer agree line for line. It is a one-line change in each
-block's timeframe list whenever the port is next touched.
 
 **The schedule panel is MT5 only, for now.** The third block — the week and
 today timetables — has no Pine counterpart yet. Nothing about it is impossible

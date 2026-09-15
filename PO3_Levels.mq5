@@ -684,15 +684,15 @@ input bool  InpNumberAll     = false;            // Number every candle, not jus
 
 input group "Candle count panel";
 //--- A ladder of calendar periods, each counted in the candles that divide it:
-//--- the year in months, weeks and days; the month in days, H4s, H2s and H1s;
+//--- the year in months, weeks and days; the month in days, H4s and H1s;
 //--- the week the same ladder on down to M30; the day from H1 down to M1. Every
 //--- block carries its own anchor. What you read for is agreement - one row on
 //--- a kihon number is a small turn due, several blocks landing together is a
 //--- bigger one.
 input bool             InpShowPanel   = true;               // Show the count panel
 input bool             InpShowYear    = true;               // Year block    - MN1, W1, D1
-input bool             InpShowMonth   = true;               // Month block   - D1, H4, H2, H1
-input bool             InpShowWeek    = true;               // Week block    - H4, H2, H1, M30
+input bool             InpShowMonth   = true;               // Month block   - D1, H4, H1
+input bool             InpShowWeek    = true;               // Week block    - H4, H1, M30
 input bool             InpShowDay     = true;               // Day block     - H1, M30, M15, M5, M1
 //--- Mid left. The vertical centre is worked out from the chart height and the
 //--- number of rows rather than set as a fixed Y, because both change - the day
@@ -1366,8 +1366,8 @@ void UpdateSession()
 //+------------------------------------------------------------------+
 
 //--- The panel is a ladder of calendar periods, each counted in the candles
-//--- that divide it sensibly: months, weeks and days make up a year; days, H4s,
-//--- H2s and H1s make up a month; H4s, H2s, H1s and M30s make up a week; and H1
+//--- that divide it sensibly: months, weeks and days make up a year; days, H4s
+//--- and H1s make up a month; H4s, H1s and M30s make up a week; and H1
 //--- down to M5 makes up a day. Every block carries its OWN anchor, which is
 //--- the whole point - a week count from the day open would read 1 forever.
 //--- The lists are fixed rather than inputs so no block can be pointed at a
@@ -1378,27 +1378,13 @@ void UpdateSession()
 //--- of the twelve numbers and stops just short of 257 without ever running
 //--- off the end of the list.
 //---
-//--- H2 on the month is the same fit one rung up, and was missing until now. A
-//--- trading month is around 21 days, which is 252 H2 candles - eleven numbers
-//--- again, stopping just short of 257 again. The rule behind both is that a
-//--- row reads best when the period divided by the timeframe lands near 250:
-//--- far enough to reach the numbers, not so far that it runs off the end. D1
-//--- on the year is the third of them at 252, so three of the four blocks now
-//--- carry a row that spans their period exactly.
-//---
-//--- H2 is on the WEEK as well, where it is not the best fit - M30 already is -
-//--- but where it fills a real gap all the same. A trading week is 60 H2
-//--- candles, so the row reaches six numbers and stays live to Friday. Without
-//--- it the week stepped H4 (30 candles, three numbers) straight to H1 (120,
-//--- eight), and the same H2 count now reads on both the week and the month,
-//--- which is the one pair of blocks whose anchors are close enough for that
-//--- comparison to mean anything.
-//---
-//--- What H2 is FOR is the half of the month the H1 row cannot speak to. H1
-//--- over a month is 504 candles, so it passes 257 around the first of July
-//--- and reads "past 257" for the rest of it; D1 at 21 candles only ever
-//--- reaches 9 and 17. Between a row that runs out and a row that barely
-//--- starts, the month had no count that covered it end to end.
+//--- H2 is not counted anywhere on the panel. It was on the month and the week
+//--- and has been taken off both, so the ladder steps H4 straight to H1 on each
+//--- of them. What that costs is the middle of the month: H1 over a month is
+//--- 504 candles, so it passes 257 around the first of July and reads "past
+//--- 257" for the rest of it, while D1 at 21 candles only ever reaches 9 and
+//--- 17, and no remaining row covers a month end to end. That is the trade, and
+//--- it is worth knowing before adding a row back.
 //---
 //--- The year, month and week blocks are FIXED. They are the same counts
 //--- whatever period the chart is on, so switching timeframe must not change
@@ -1417,15 +1403,13 @@ void UpdateSession()
 //--- session has got to. The ladder is now read the same way the year, month
 //--- and week blocks are, which is the point of a ladder.
 //---
-//--- H2 is deliberately NOT in that ladder, though it is in the month and week
-//--- blocks above. Twelve H2 candles fit in a day, so the only number it could
-//--- ever reach is 9, once, at +16h - and 2:1 nesting puts that on the same
-//--- candle as H1 17, M30 33 and M15 65, every single time, because 2k-1
-//--- carries a kihon number onto a kihon number. The row would fire once a
-//--- session, always at an instant three other rows were already marking, and
-//--- its only original content would be the H2 count itself. A fourth row
-//--- lighting up at 16:00 makes the block look more agreed with itself without
-//--- any more agreement being there, which is worse than saying nothing.
+//--- H2 was never in that ladder, and the reason it was kept out is the reason
+//--- it is now off the other blocks too. Twelve H2 candles fit in a day, so the
+//--- only number it could ever reach here is 9, once, at +16h - and 2:1 nesting
+//--- puts that on the same candle as H1 17, M30 33 and M15 65, every single
+//--- time, because 2k-1 carries a kihon number onto a kihon number. A row that
+//--- fires at an instant three other rows are already marking makes the block
+//--- look more agreed with itself without any more agreement being there.
 //---
 //--- M1 is missing from that ladder on purpose, on every chart period. The M1
 //--- row is ALWAYS the nested one, which restarts at each kihon suchi H1 candle
@@ -1434,10 +1418,8 @@ void UpdateSession()
 //--- nothing for the rest of the session. That is the one row a chart period
 //--- could never have justified either way.
 const ENUM_TIMEFRAMES g_kpYear[3]  = { PERIOD_MN1, PERIOD_W1,  PERIOD_D1 };
-const ENUM_TIMEFRAMES g_kpMonth[4] = { PERIOD_D1,  PERIOD_H4,  PERIOD_H2,
-                                       PERIOD_H1 };
-const ENUM_TIMEFRAMES g_kpWeek[4]  = { PERIOD_H4,  PERIOD_H2,  PERIOD_H1,
-                                       PERIOD_M30 };
+const ENUM_TIMEFRAMES g_kpMonth[3] = { PERIOD_D1,  PERIOD_H4,  PERIOD_H1 };
+const ENUM_TIMEFRAMES g_kpWeek[3]  = { PERIOD_H4,  PERIOD_H1,  PERIOD_M30 };
 const ENUM_TIMEFRAMES g_kpDay[4]   = { PERIOD_H1,  PERIOD_M30, PERIOD_M15,
                                        PERIOD_M5 };
 
@@ -1447,7 +1429,7 @@ const ENUM_TIMEFRAMES g_kpDay[4]   = { PERIOD_H1,  PERIOD_M30, PERIOD_M15,
 //--- schedule panel runs to 39 rows on the 9-33 window - five timeframes of
 //--- four numbers for the week, three more groups for today, and the titles and
 //--- spacers between them - and to 44 with the today list opened past 33, where
-//--- M15 alone contributes eight. The count panel's own worst case is 23 and
+//--- M15 alone contributes eight. The count panel's own worst case is 21 and
 //--- the segment panel's 9, so the number is the schedule panel's and the
 //--- headroom above it is deliberate.
 #define KP_MAX_ROWS   48
@@ -2313,8 +2295,8 @@ void SchedBuild(string &txt[], color &clr[], int &n)
 //| The count panel: a ladder of calendar periods, each counted in   |
 //| the candles that divide it.                                      |
 //|                                                                  |
-//| Year in months, weeks and days; month in days, H4s, H2s and H1s; |
-//| week the same down to M30; day in H1 down to M1. Each has its own|
+//| Year in months, weeks and days; month in days, H4s and H1s; week |
+//| the same down to M30; day in H1 down to M1. Each has its own     |
 //| anchor, so a row is always counting something its timeframe can  |
 //| actually fill - a week counted in H1 reads 26 on Wednesday       |
 //| morning, where a week counted from the day open would read 1.    |
