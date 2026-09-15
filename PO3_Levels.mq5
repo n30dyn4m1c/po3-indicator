@@ -496,38 +496,6 @@ const ENUM_TIMEFRAMES g_schDay[3]  = { PERIOD_H1, PERIOD_M30, PERIOD_M15 };
 const string g_schDow[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
 
 //+------------------------------------------------------------------+
-//| A candle open written the way a diary entry is: weekday, date,   |
-//| time of day.                                                     |
-//|                                                                  |
-//| The month is in it and the year is not. Most of the block is     |
-//| inside this week, where the weekday alone would do - but the D1  |
-//| rows are not, and they are the ones that need it: D1 9 is a week |
-//| and a half out and D1 33 over a month, so a bare "Tue 06" under  |
-//| a heading that says this week reads as the 6th of a month that   |
-//| has already gone. Three characters to make the column say what   |
-//| it means.                                                        |
-//|                                                                  |
-//| The year stays out. Nothing here reaches one: the furthest row   |
-//| in the block is D1 33, around seven trading weeks ahead.         |
-//+------------------------------------------------------------------+
-string SchedWhen(const datetime t)
-  {
-   if(t <= 0)
-      return("-");
-
-   MqlDateTime st;
-   TimeToStruct(t, st);
-
-   //--- Clamped rather than trusted. day_of_week is always 0..6 from a valid
-   //--- time, but this indexes a fixed array and an out-of-range read here
-   //--- would be a crash rather than a wrong weekday.
-   int dow = (st.day_of_week >= 0 && st.day_of_week <= 6) ? st.day_of_week : 0;
-
-   return(StringFormat("%s %02d/%02d %02d:%02d",
-                       g_schDow[dow], st.day, st.mon, st.hour, st.min));
-  }
-
-//+------------------------------------------------------------------+
 //| Does this symbol trade at all on that weekday.                   |
 //|                                                                  |
 //| Asked of the symbol rather than assumed, because "the weekend"   |
@@ -792,6 +760,11 @@ input double InpSchedTzHours = 10.0;   // ... that offset, in hours (10 = PNG)
 //--- Half-hour and quarter-hour zones exist - India is 5.5, Chatham 12.75 - so
 //--- this is hours as a decimal rather than a whole number.
 input bool   InpSchedTzBoth  = false;  // ... and keep the server time beside it
+//--- The 12-hour clock for the timetable, which is the block whose times get
+//--- written into a diary. The count and segment blocks are unaffected: they
+//--- print period opens, not appointments, and 00:00 there is a label on an
+//--- anchor rather than a time anyone reads off and acts on.
+input bool   InpSchedAmPm    = true;   // Write the times as AM / PM, not 24-hour
 
 input group "PO3 levels to show";
 //--- Every grid is on by default: the model is the whole nest of powers, and a
@@ -2042,6 +2015,75 @@ bool SegAdd(const ENUM_TIMEFRAMES tf, const bool withDay, const bool gap,
 //+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
+//| Time of day, on whichever clock the block is set to.             |
+//|                                                                  |
+//| Midnight is 12:00 AM and noon is 12:00 PM - the one place the    |
+//| 12-hour clock catches people out, and the reason this is a       |
+//| function rather than a format string. Hour 0 and hour 12 both    |
+//| reduce to 12; it is the AM/PM that separates them.               |
+//|                                                                  |
+//| The hour is padded to two columns rather than zero-filled, so    |
+//| " 7:00 AM" lines up under "12:00 PM" without reading as 07.      |
+//+------------------------------------------------------------------+
+string SchedClock(const int hour, const int minute)
+  {
+   if(!InpSchedAmPm)
+      return(StringFormat("%02d:%02d", hour, minute));
+
+   int h = hour % 12;
+   if(h == 0)
+      h = 12;
+
+   return(StringFormat("%2d:%02d %s", h, minute, (hour < 12) ? "AM" : "PM"));
+  }
+
+//--- A datetime's time of day on that same clock, for the block headings.
+string SchedClockOf(const datetime t)
+  {
+   MqlDateTime st;
+   TimeToStruct(t, st);
+   return(SchedClock(st.hour, st.min));
+  }
+
+//+------------------------------------------------------------------+
+//| A candle open written the way a diary entry is: weekday, date,   |
+//| time of day.                                                     |
+//|                                                                  |
+//| The month is in it and the year is not. Most of the block is     |
+//| inside this week, where the weekday alone would do - but the D1  |
+//| rows are not, and they are the ones that need it: D1 9 is a week |
+//| and a half out and D1 33 over a month, so a bare "Tue 06" under  |
+//| a heading that says this week reads as the 6th of a month that   |
+//| has already gone. Three characters to make the column say what   |
+//| it means.                                                        |
+//|                                                                  |
+//| The year stays out. Nothing here reaches one: the furthest row   |
+//| in the block is D1 33, around seven trading weeks ahead.         |
+//|                                                                  |
+//| The hour is written on whichever clock the block is set to. It   |
+//| sits here rather than in the kihon section it used to live in,   |
+//| because it now reads an input and MQL5 wants that declared       |
+//| above the function using it.                                     |
+//+------------------------------------------------------------------+
+string SchedWhen(const datetime t)
+  {
+   if(t <= 0)
+      return("-");
+
+   MqlDateTime st;
+   TimeToStruct(t, st);
+
+   //--- Clamped rather than trusted. day_of_week is always 0..6 from a valid
+   //--- time, but this indexes a fixed array and an out-of-range read here
+   //--- would be a crash rather than a wrong weekday.
+   int dow = (st.day_of_week >= 0 && st.day_of_week <= 6) ? st.day_of_week : 0;
+
+   return(StringFormat("%s %02d/%02d %s",
+                       g_schDow[dow], st.day, st.mon,
+                       SchedClock(st.hour, st.min)));
+  }
+
+//+------------------------------------------------------------------+
 //| How far the trade server runs ahead of UTC, in seconds.          |
 //|                                                                  |
 //| TimeTradeServer rather than TimeCurrent, and the distinction is  |
@@ -2097,20 +2139,34 @@ string SchedTzTag()
           : StringFormat("UTC%s%d:%02d", sign, (int)(m / 60), (int)(m % 60)));
   }
 
-//--- A heading's own time, converted and tagged the same way the rows are.
+//--- A heading's own time, converted and written the same way the rows are.
+//--- TIME_MINUTES goes through the block's own clock so a heading cannot read
+//--- 24-hour over a column of AM/PM; TIME_DATE has no hour in it to convert.
 string SchedTzStamp(const datetime srv, const int fmt)
   {
-   return((srv > 0) ? TimeToString(SchedTzShift(srv), fmt) : "-");
+   if(srv <= 0)
+      return("-");
+
+   datetime t = SchedTzShift(srv);
+
+   return((fmt == TIME_MINUTES) ? SchedClockOf(t) : TimeToString(t, fmt));
   }
 
-//--- Width of the time column. A converted stamp is "~Thu 24/09 00:00", and
-//--- with the server time kept beside it a " (00:00)" follows.
+//--- Width of the time column: "~Thu 24/09 12:00 AM" on the 12-hour clock and
+//--- "~Thu 24/09 00:00" on the 24-hour one, plus a bracketed server time of
+//--- the same shape when that is asked for.
+//---
+//--- Both flags for the bracket, because it is only ever written when there is
+//--- a conversion to write it beside. Widening on InpSchedTzBoth alone would
+//--- pad every row out to a column nothing is ever put in.
 int SchedStampWidth()
   {
-   //--- Both flags, because the bracket is only ever written when there is a
-   //--- conversion to write it beside. Widening on InpSchedTzBoth alone would
-   //--- pad every row out to a column nothing is ever put in.
-   return((InpSchedTzBoth && InpSchedTz) ? 24 : 16);
+   int w = InpSchedAmPm ? 19 : 16;
+
+   if(InpSchedTzBoth && InpSchedTz)
+      w += InpSchedAmPm ? 11 : 8;
+
+   return(w);
   }
 
 //--- Left-justify to a width StringFormat cannot take as a variable.
@@ -2180,7 +2236,7 @@ string SchedRow(const ENUM_TIMEFRAMES tf, const int k, const int c,
       //--- width of the column to say the same thing twice - the two differ
       //--- by hours, so they disagree about the date at most once a day.
       if(InpSchedTzBoth && InpSchedTz)
-         stamp += " (" + TimeToString(when, TIME_MINUTES) + ")";
+         stamp += " (" + SchedClockOf(when) + ")";
 
       tail  = (state == 0) ? "done" : ((state == 1) ? "NOW" : "due");
      }
