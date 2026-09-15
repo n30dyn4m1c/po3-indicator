@@ -584,7 +584,17 @@ input bool   InpShowLabels  = true; // Write the PO3 number on each line
 //--- each other says nothing the line spacing does not.
 input int    InpLabelMinPO3 = 3;    // Label only levels of PO3 >= this (1 to label the 1 grid)
 input int    InpFontSize    = 7;    // Label text size
-input int    InpLabelShift  = 0;    // Label shift right, in bars (0 = at the last bar)
+//--- The labels are the rightmost thing on the chart, out past the candles in
+//--- the empty margin, with the countdown tabbed in to their left. Each label
+//--- ENDS at this bar and grows leftwards, so this is the right-hand edge of
+//--- the column and the numbers line up on it.
+//---
+//--- Needs chart shift switched on. Without it there is no margin right of the
+//--- last bar to put anything in, and a shift this large parks the whole
+//--- column off the edge of the screen - the one way to make the labels
+//--- vanish with everything about them still correct. Set it back to 0 to pin
+//--- them at the last bar, which is always on screen.
+input int    InpLabelShift  = 20;   // Label shift right, in bars (0 = at the last bar)
 
 input group "Candle countdown";
 //--- The countdown rides the developing candle rather than sitting in a corner,
@@ -592,7 +602,22 @@ input group "Candle countdown";
 //--- It is anchored to that candle's time and to the current price, so it
 //--- travels with both. See UpdateClock.
 input bool   InpShowClock   = true;         // Show time left on the current candle
-input int    InpClockShift  = 1;            // Bars right of the developing candle (0 = beside it)
+//--- Ten bars out, in the gap between the candles and the label column rather
+//--- than beside the candle it belongs to. With the labels switched on the
+//--- text ENDS here and grows leftwards, so this is its right-hand edge and
+//--- the ten bars between it and the labels are the tab between the two.
+//---
+//--- Ten rather than four or five because the tab has to stay open as the
+//--- chart zooms out: the shifts are in bars and both texts are in pixels, so
+//--- every zoom-out step widens them in bar terms and eats the gap from both
+//--- ends. Ten bars holds down to about a third of the default zoom.
+//---
+//--- Growing leftwards is what makes the no-overlap hold. The countdown is the
+//--- wider text of the two - "M1  00:42" against "19683" - so a clock reading
+//--- rightwards from inside the margin runs into the labels at any zoom. Ending
+//--- at its anchor instead, the only thing it can ever grow into is the empty
+//--- space behind it, and at worst the last candle or two.
+input int    InpClockShift  = 10;           // Bars right of the developing candle (0 = beside it)
 input int    InpClockGapPts = 0;            // Vertical offset from price, in points (+ up)
 input int    InpClockSize   = 8;            // Text size
 input color  InpClockColor  = clrLime;      // Text colour
@@ -1337,16 +1362,37 @@ void UpdateClock()
 
    long left = (long)(open + PeriodSeconds()) - (long)TimeCurrent();
 
+   //--- Kept inside the label column. The labels end at InpLabelShift and grow
+   //--- leftwards, so the clock has to start left of that or the two write
+   //--- over each other - and a clock placed at or beyond the labels would be
+   //--- the one of the pair that moved, since the labels are meant to be the
+   //--- rightmost thing on the chart.
+   //---
+   //--- This only orders them. It cannot guarantee they never touch: the shift
+   //--- is in bars and the text is in pixels, so zooming out far enough closes
+   //--- any bar gap. Nudge this down or the label shift up if they meet.
+   int shift = InpClockShift;
+   if(InpShowLabels && shift >= InpLabelShift)
+      shift = InpLabelShift - 1;
+
    //--- Shift is in bars, so the gap to the candle holds at every zoom level.
    //--- Signed arithmetic before the cast: a negative shift on an unsigned
    //--- datetime would wrap and throw the text to the far end of the chart.
-   long     bars = (long)PeriodSeconds() * InpClockShift;
+   long     bars = (long)PeriodSeconds() * shift;
    datetime at   = (datetime)MathMax(0, (long)open + bars);
 
-   //--- Past the last bar the text has to read rightwards, into the empty
-   //--- space; at or behind it, ending at the anchor keeps the text off the
-   //--- candles and, with chart shift off, on screen.
-   ENUM_ANCHOR_POINT anchor = (InpClockShift > 0) ? ANCHOR_LEFT : ANCHOR_RIGHT;
+   //--- Which way the text grows from its anchor, and the whole of why the two
+   //--- do not collide.
+   //---
+   //--- With labels to its right it ends at the anchor and grows LEFT, into
+   //--- the space it just came from - it cannot reach the label column however
+   //--- wide the text gets or however far the chart is zoomed out. Without
+   //--- them there is nothing to its right to protect, so it reverts to the
+   //--- old rule: out in the margin it reads rightwards into the empty space,
+   //--- and at or behind the last bar it ends at the anchor, which keeps it
+   //--- off the candles and on screen with chart shift off.
+   bool  guarded = (InpShowLabels && InpLabelShift > 0);
+   ENUM_ANCHOR_POINT anchor = (shift > 0 && !guarded) ? ANCHOR_LEFT : ANCHOR_RIGHT;
 
    ObjectCreate(0, name, OBJ_TEXT, 0, at, price);
 

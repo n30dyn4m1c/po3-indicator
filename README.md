@@ -201,11 +201,11 @@ it. What the platform changes is covered under
 | Write the PO3 number on each line | `true` | |
 | Label only levels of PO3 >= | `3` | Everything from 3 up is labelled; the default leaves the 1 grid unlabelled, which is what you want for a faint line a dollar from its neighbour. Every label shares one time anchor, so raise this if the fine grids stack digits |
 | Label text size | `7` | Clamped to 5–20 |
-| Label shift right, in bars | `0` | `0` anchors at the last bar, always on screen |
+| Label shift right, in bars | `20` | The right-hand edge of the label column — each label ends here and grows leftwards. Needs chart shift on; `0` pins them at the last bar, always on screen |
 | Show 1 | `true` | 3⁰, first in the list, **M1 only**. Every whole number at scale 1 — a line per dollar on gold, subdividing each 3 cell into thirds. Defaults to a near-black so it reads as texture, not as a level. Ticked on a higher timeframe it draws nothing and says so in the log |
 | Show 3 … Show 19683 | all on | One checkbox and one colour per PO3 number; untick the fine grids for a quieter chart |
 | Show time left on the current candle | `true` | Printed beside the developing candle, level with price |
-| Bars right of the developing candle | `1` | `0` puts it beside the candle, ending at it; needs chart shift on to sit further right |
+| Bars right of the developing candle | `10` | Its right-hand edge, tabbed ten bars inside the labels. `0` puts it beside the candle, ending at it; needs chart shift on to sit further right |
 | Vertical offset from price, in points | `0` | Positive lifts the text above price |
 | Text size | `8` | Sized to sit among the candles without crowding them; clamped to 6-24 |
 | Text colour | `clrLime` | |
@@ -275,13 +275,33 @@ seconds, `H4  03:59:59`, `D1  23:59:59`, `W1  6d 23:59:59`. It runs off a
 one-second timer rather than incoming ticks, so it keeps counting through a
 quiet session instead of freezing between trades.
 
-It sits next to the developing candle, anchored to that candle's time and to
-the current price, so it travels with the candle as the chart scrolls and rides
-price as it moves — the time left is read in the same glance as the candle it
-belongs to. *Bars right of the developing candle* moves it; past the last bar
-the text reads rightwards into the empty space, and at `0` or behind it the
-text ends at the anchor, which keeps it on screen with chart shift switched
-off.
+It is anchored to the developing candle's time and to the current price, so it
+travels with the candle as the chart scrolls and rides price as it moves — the
+time left is read in the same glance as the candle it belongs to.
+
+By default it sits out in the right margin with the level labels, not beside
+the candle: the labels are the rightmost thing on the chart at bar `20`, and
+the countdown is tabbed ten bars inside them at `10`.
+
+**They cannot collide.** Whenever the labels are on and out in the margin, the
+countdown's text *ends* at its bar and grows leftwards, into the space it came
+from — so it can never reach the label column however wide the text gets or
+however far you zoom out. This matters because the countdown is the wider text
+of the two, `M1  00:42` against `19683`: a countdown reading rightwards from
+inside the margin would run into the labels at any zoom. What it can do at
+heavy zoom-out is back over the last candle or two, which is the harmless
+direction to fail in.
+
+The ten-bar tab is sized for that failure being the only one. Both shifts are
+in bars and both texts are in pixels, so every zoom-out step widens the texts
+in bar terms and eats the gap from both ends; ten bars holds down to about a
+third of the default zoom. Below that, nudge the countdown's shift down or the
+labels' up.
+
+With the labels switched off there is nothing to its right to protect, so the
+countdown reverts to the simpler rule: past the last bar the text reads
+rightwards into the empty space, and at `0` or behind it the text ends at the
+anchor, which keeps it on screen with chart shift switched off.
 
 ### Session timer
 
@@ -1018,7 +1038,7 @@ in the file's own header as well:
 | Countdown refresh | Once a second, off `OnTimer` | On a tick — a quiet market freezes it |
 | Session timer | Survives a timeframe change | Restarts on one |
 | Server time | The broker's clock | The exchange timezone |
-| Level labels | *Label shift right*, default `0` | *Label gap right of the last candle*, default `10` |
+| Level labels | *Label shift right*, default `20` | *Label gap right of the last candle*, default `10` |
 | The Experts log | Line counts per grid, resolved sizes | No log; the panel carries what it can |
 
 **The schedule panel is MT5 only, for now.** The third block — the week and
