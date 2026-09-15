@@ -17,6 +17,14 @@ it is every whole number, so on gold it draws a line per dollar and every 3
 cell on the chart gets its two interior lines — the finest subdivision the
 model has, and the one that says where inside a 3 range price is sitting.
 
+**It draws on M1 only.** A dollar grid is the size of an M1 candle, so there
+the lines read as the floor a candle is standing on. One rung up they are not:
+an M1 chart's dollar is an H1 candle's rounding error, and the grid stops being
+a subdivision you can see and becomes a wash of lines behind candles that step
+over three of them at a time. The rule is in the code rather than in an input —
+leave the box ticked and it appears when you drop to M1, and the Experts log
+says so on load rather than leaving a ticked box silently drawing nothing.
+
 It is drawn **very faint**, and that is the whole of its design. MT5 gives a
 horizontal line no transparency, so faintness is the colour and nothing else —
 and since the colour *is* the effect, the default is tuned for a black chart:
@@ -51,7 +59,7 @@ on the time theory (*jikan ron*) of Goichi Hosoda's Ichimoku Kinko Hyo.
 
 ## Features
 
-- One checkbox per PO3 number from 3⁰ = 1 up to 3⁹ = 19683, each with its own colour, the 1 grid drawn very faint as the subdivision of the 3 grid
+- One checkbox per PO3 number from 3⁰ = 1 up to 3⁹ = 19683, each with its own colour, the 1 grid drawn very faint on M1 only as the subdivision of the 3 grid
 - Levels drawn around current price, a configurable count each side
 - Overlapping levels merge and take the highest PO3 number that lands on them
 - Width and style follow magnitude, so stronger levels read as stronger lines
@@ -188,12 +196,13 @@ it. What the platform changes is covered under
 |-------|---------|-------|
 | Scale divisor | `1.0` | `1` for whole numbers, `100` for the workbook's two-decimal gold form |
 | Levels each side of price | `3` | Applies per ticked grid, except the 1 grid, which draws three times as many so it spans what the 3 grid spans. Clamped to 1–100 |
+
 | Draw lines behind the candles | `false` | Fine grids sit where the candles are, so the default draws in front |
 | Write the PO3 number on each line | `true` | |
 | Label only levels of PO3 >= | `3` | Everything from 3 up is labelled; the default leaves the 1 grid unlabelled, which is what you want for a faint line a dollar from its neighbour. Every label shares one time anchor, so raise this if the fine grids stack digits |
 | Label text size | `7` | Clamped to 5–20 |
 | Label shift right, in bars | `0` | `0` anchors at the last bar, always on screen |
-| Show 1 | `true` | 3⁰, first in the list. Every whole number at scale 1 — a line per dollar on gold, subdividing each 3 cell into thirds. Defaults to a near-background grey so it reads as texture, not as a level |
+| Show 1 | `true` | 3⁰, first in the list, **M1 only**. Every whole number at scale 1 — a line per dollar on gold, subdividing each 3 cell into thirds. Defaults to a near-black so it reads as texture, not as a level. Ticked on a higher timeframe it draws nothing and says so in the log |
 | Show 3 … Show 19683 | all on | One checkbox and one colour per PO3 number; untick the fine grids for a quieter chart |
 | Show time left on the current candle | `true` | Printed beside the developing candle, level with price |
 | Bars right of the developing candle | `1` | `0` puts it beside the candle, ending at it; needs chart shift on to sit further right |

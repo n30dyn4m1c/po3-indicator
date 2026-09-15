@@ -775,6 +775,11 @@ input group "PO3 levels to show";
 //--- so on gold it draws a line per dollar and the 3 grid's cells each get
 //--- their two interior lines - the finest subdivision the model has.
 //---
+//--- M1 ONLY. Ticking it on any higher timeframe draws nothing, by the rule in
+//--- OnInit rather than by anything in this input - a dollar grid is the size
+//--- of an M1 candle and a rounding error to an H1 one. The Experts log says
+//--- so on load rather than leaving a ticked box drawing nothing.
+//---
 //--- It is drawn very faint on purpose. MT5 gives an OBJ_HLINE no
 //--- transparency, so faintness is the colour and nothing else - and since the
 //--- colour IS the effect, it is tuned for a black chart: 48,48,48 is a near
@@ -788,7 +793,7 @@ input group "PO3 levels to show";
 //--- On a LIGHT background invert the thinking rather than nudging this: a
 //--- near-black is the loudest line on a white chart, not the quietest, and
 //--- the faint end there is a near-white like 220,220,220.
-input bool  InpUse_1     = true;               // 1      - show
+input bool  InpUse_1     = true;               // 1      - show (M1 only)
 input color InpCol_1     = C'48,48,48';        // 1      - colour
 input bool  InpUse_3     = true;               // 3      - show
 input color InpCol_3     = clrGray;            // 3      - colour
@@ -1005,8 +1010,25 @@ int OnInit()
                (int)MathMax(5, MathMin(20, InpKihonSize)),
                (int)MathMax(5, MathMin(20, InpFontSize)));
 
+   //--- The 1 grid is M1 only, and that is a rule rather than an input. At
+   //--- scale 1 its lines are a dollar apart, which is the scale an M1 candle
+   //--- moves in - the grid and the candles are the same size, so the lines
+   //--- read as the floor the candle is standing on. One rung up they are not:
+   //--- an M1 chart's dollar is an H1 candle's rounding error, and the grid
+   //--- stops being a subdivision you can see and becomes a wash of lines
+   //--- behind candles that step straight over three of them at a time.
+   //---
+   //--- Enforced here rather than at draw time so g_n and g_finest are right
+   //--- everywhere else: on anything above M1 the finest ticked grid is 3
+   //--- again, and the rebuild goes back to firing every three dollars of
+   //--- travel instead of every one.
+   //---
+   //--- MT5 reinitialises an indicator on a timeframe change, so this is
+   //--- re-decided on every switch with no state to keep in step.
+   bool onM1 = (_Period == PERIOD_M1);
+
    g_n = 0;                                  // ascending, so g_po3[0] is finest
-   AddPO3(InpUse_1,     1,     InpCol_1);
+   AddPO3(InpUse_1 && onM1, 1, InpCol_1);
    AddPO3(InpUse_3,     3,     InpCol_3);
    AddPO3(InpUse_9,     9,     InpCol_9);
    AddPO3(InpUse_27,    27,    InpCol_27);
@@ -1016,6 +1038,13 @@ int OnInit()
    AddPO3(InpUse_2187,  2187,  InpCol_2187);
    AddPO3(InpUse_6561,  6561,  InpCol_6561);
    AddPO3(InpUse_19683, 19683, InpCol_19683);
+
+   //--- Said out loud, because a ticked checkbox drawing nothing is otherwise
+   //--- indistinguishable from a broken one. The rest of the grids report
+   //--- their line counts below; this is the one that can be on and absent.
+   if(InpUse_1 && !onM1)
+      Print("PO3 Levels: PO3 1 is ticked but not drawn - it is M1 only. "
+            "Drop to M1 to see it.");
 
    if(g_n == 0)
      {
@@ -1030,19 +1059,19 @@ int OnInit()
      }
 
    //--- Freeze guard. The clamp alone caps ten ticked grids at 2400 candidate
-   //--- levels - 1800 for the nine, 600 for the 1 grid's triple window - which
-   //--- MT5 handles. Deliberately no further trim on top: quietly
+   //--- levels - 1800 for the nine, 600 for the 1 grid's triple window, and
+   //--- that last 600 only on M1 - which MT5 handles. Deliberately no further trim on top: quietly
    //--- rewriting the count would make the input mean something other than what
    //--- it says, and the warning would sit in a log nobody is watching.
    g_each = (int)MathMax(1, MathMin(100, InpEachSide));
 
    //--- Powers of three nest, so the finest ticked grid's cell boundaries are a
    //--- superset of every coarser one. Tracking its cell is enough to know when
-   //--- any ticked level would move. With the 1 grid ticked that cell is a
-   //--- dollar wide at scale 1, so the rebuild runs on every dollar of travel
-   //--- rather than every three. That is the honest cost of the finest grid,
-   //--- and the reason to untick it on a slow machine rather than to live with
-   //--- a redraw that cannot keep up.
+   //--- any ticked level would move. On M1 with the 1 grid drawn that cell is
+   //--- a dollar wide at scale 1, so the rebuild runs on every dollar of
+   //--- travel rather than every three - the honest cost of the finest grid,
+   //--- and paid only where it is drawn. Above M1 the 1 grid is suppressed, so
+   //--- g_po3[0] is 3 again and the old cadence comes back with it.
    g_finest = g_po3[0];
 
    string names = "";
