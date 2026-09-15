@@ -201,14 +201,11 @@ it. What the platform changes is covered under
 | Write the PO3 number on each line | `true` | |
 | Label only levels of PO3 >= | `3` | Everything from 3 up is labelled; the default leaves the 1 grid unlabelled, which is what you want for a faint line a dollar from its neighbour. Every label shares one time anchor, so raise this if the fine grids stack digits |
 | Label text size | `7` | Clamped to 5–20 |
-| Pin the labels beside the price scale | `true` | Places them in pixels off the window's right edge, so they land against the price figures at any zoom and need no chart shift at all |
-| ... this many pixels off it | `3` | The gap between the number and the price scale |
-| Label shift right, in bars | `20` | Only when *not* pinned: the right-hand edge of the bar-anchored column. Needs chart shift on; `0` pins them at the last bar |
+| Label shift right, in bars | `0` | `0` anchors at the last bar, always on screen |
 | Show 1 | `true` | 3⁰, first in the list, **M1 only**. Every whole number at scale 1 — a line per dollar on gold, subdividing each 3 cell into thirds. Defaults to a near-black so it reads as texture, not as a level. Ticked on a higher timeframe it draws nothing and says so in the log |
 | Show 3 … Show 19683 | all on | One checkbox and one colour per PO3 number; untick the fine grids for a quieter chart |
 | Show time left on the current candle | `true` | Printed beside the developing candle, level with price |
-| Pixels further left than the labels | `58` | Pinned mode: the tab between the countdown and the label column, measured off the same window edge |
-| Bars right of the developing candle | `10` | Only when *not* pinned. `0` puts it beside the candle, ending at it; needs chart shift on to sit further right |
+| Bars right of the developing candle | `1` | `0` puts it beside the candle, ending at it; needs chart shift on to sit further right |
 | Vertical offset from price, in points | `0` | Positive lifts the text above price |
 | Text size | `8` | Sized to sit among the candles without crowding them; clamped to 6-24 |
 | Text colour | `clrLime` | |
@@ -278,23 +275,13 @@ seconds, `H4  03:59:59`, `D1  23:59:59`, `W1  6d 23:59:59`. It runs off a
 one-second timer rather than incoming ticks, so it keeps counting through a
 quiet session instead of freezing between trades.
 
-It is anchored to the developing candle's time and to the current price, so it
-travels with the candle as the chart scrolls and rides price as it moves — the
-time left is read in the same glance as the candle it belongs to.
-
-By default it follows the labels to the right-hand edge of the window rather
-than sitting beside the candle, tabbed 58 pixels inside them. It still rides
-price vertically, so it stays level with the candle it belongs to.
-
-**They cannot collide.** Both are placed in pixels off the same window edge —
-labels at 3, countdown at 61 — so the 33-pixel clearance between the
-countdown's right edge and the label column's left edge is the same clearance
-at every zoom level. Nothing about the chart's scale can close it.
-
-With the labels unpinned the countdown reverts to bar anchoring, and there the
-old rule applies: past the last bar the text reads rightwards into the empty
-space, and at `0` or behind it the text ends at the anchor, which keeps it on
-screen with chart shift switched off.
+It sits next to the developing candle, anchored to that candle's time and to
+the current price, so it travels with the candle as the chart scrolls and rides
+price as it moves — the time left is read in the same glance as the candle it
+belongs to. *Bars right of the developing candle* moves it; past the last bar
+the text reads rightwards into the empty space, and at `0` or behind it the
+text ends at the anchor, which keeps it on screen with chart shift switched
+off.
 
 ### Session timer
 
@@ -1031,7 +1018,7 @@ in the file's own header as well:
 | Countdown refresh | Once a second, off `OnTimer` | On a tick — a quiet market freezes it |
 | Session timer | Survives a timeframe change | Restarts on one |
 | Server time | The broker's clock | The exchange timezone |
-| Level labels | Pinned to the price scale in pixels; bar-anchored is the fallback | *Label gap right of the last candle*, default `10`, bars only |
+| Level labels | *Label shift right*, default `0` | *Label gap right of the last candle*, default `10` |
 | The Experts log | Line counts per grid, resolved sizes | No log; the panel carries what it can |
 
 **The schedule panel is MT5 only, for now.** The third block — the week and

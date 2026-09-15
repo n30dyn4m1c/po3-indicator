@@ -584,26 +584,7 @@ input bool   InpShowLabels  = true; // Write the PO3 number on each line
 //--- each other says nothing the line spacing does not.
 input int    InpLabelMinPO3 = 3;    // Label only levels of PO3 >= this (1 to label the 1 grid)
 input int    InpFontSize    = 7;    // Label text size
-//--- WHERE THE LABELS SIT. Two ways, and the default is the second.
-//---
-//--- Anchored to a BAR (the old way, InpLabelAtScale off) the label is an
-//--- OBJ_TEXT pinned to a time and a price, so it scrolls with the candles and
-//--- InpLabelShift tabs it right in bars. That is fine beside the candles and
-//--- hopeless out at the edge: a bar offset cannot find the right-hand side of
-//--- the WINDOW, only a point in the chart's own coordinates, so where it
-//--- lands depends on the zoom and on how much chart shift is set. Too few
-//--- bars and it sits in the middle of the margin; too many and it is off the
-//--- screen entirely.
-//---
-//--- Pinned to the PRICE SCALE (the default) the label is an OBJ_LABEL placed
-//--- in pixels from the window's right edge, which is exactly where the price
-//--- scale starts - so the column lands against the price figures whatever the
-//--- zoom, whatever the chart shift, and with no margin needed at all. Its
-//--- height still comes from the level's price, converted each time the chart
-//--- moves. See LevelLabelY and OnChartEvent.
-input bool   InpLabelAtScale = true; // Pin the labels beside the price scale
-input int    InpLabelGapPx   = 3;    // ... this many pixels off it
-input int    InpLabelShift  = 20;   // Label shift right, in bars (only when not pinned)
+input int    InpLabelShift  = 0;    // Label shift right, in bars (0 = at the last bar)
 
 input group "Candle countdown";
 //--- The countdown rides the developing candle rather than sitting in a corner,
@@ -611,14 +592,7 @@ input group "Candle countdown";
 //--- It is anchored to that candle's time and to the current price, so it
 //--- travels with both. See UpdateClock.
 input bool   InpShowClock   = true;         // Show time left on the current candle
-//--- The countdown follows the labels to the right-hand edge when they are
-//--- pinned there, and sits one tab inside them: far enough left that the
-//--- widest countdown ("M1  00:42") clears the widest label ("19683") with the
-//--- gap below to spare. Measured in pixels off the same edge, so the tab is
-//--- the same tab at every zoom - which the bar-based version could not
-//--- promise, since a bar is a different number of pixels at each one.
-input int    InpClockTabPx  = 58;           // Pixels further left than the labels (pinned mode)
-input int    InpClockShift  = 10;           // Bars right of the developing candle (not pinned)
+input int    InpClockShift  = 1;            // Bars right of the developing candle (0 = beside it)
 input int    InpClockGapPts = 0;            // Vertical offset from price, in points (+ up)
 input int    InpClockSize   = 8;            // Text size
 input color  InpClockColor  = clrLime;      // Text colour
@@ -1143,45 +1117,6 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| A price as a y pixel in the chart window, for the pinned labels. |
-//|                                                                  |
-//| ChartTimePriceToXY wants a time as well as a price, but only the |
-//| y is used here and y comes from the price alone. The time passed |
-//| is the first visible bar's, because a time OFF the screen can    |
-//| fail the conversion outright on some builds - and the first      |
-//| visible bar is, by definition, never off it.                     |
-//|                                                                  |
-//| Returns false when the price is outside the visible range, which |
-//| is the ordinary case for a level that has scrolled off the top   |
-//| or bottom. The caller hides the label rather than parking it at  |
-//| a clamped edge, where it would sit against a line that is not    |
-//| there.                                                           |
-//+------------------------------------------------------------------+
-bool LevelLabelY(const double price, int &y)
-  {
-   int x  = 0;
-   int fv = (int)ChartGetInteger(0, CHART_FIRST_VISIBLE_BAR);
-
-   //--- Clamped to the history actually loaded. On a chart scrolled past the
-   //--- oldest bar the reported first visible bar is beyond it, iTime returns
-   //--- 0, and every label would read as off screen and vanish.
-   int total = Bars(_Symbol, _Period);
-   if(total <= 0)
-      return(false);
-   if(fv < 0 || fv >= total)
-      fv = 0;
-
-   datetime t = iTime(_Symbol, _Period, fv);
-
-   if(t == 0 || !ChartTimePriceToXY(0, 0, t, price, x, y))
-      return(false);
-
-   int h = (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS);
-
-   return(h <= 0 || (y >= 0 && y <= h));
-  }
-
-//+------------------------------------------------------------------+
 //| Draw one level. "raw" is the workbook's own integer, m * 3^n,    |
 //| so it doubles as a unique object name and keeps the arithmetic   |
 //| exact: the divide happens once, at the end. Accumulating         |
@@ -1225,96 +1160,20 @@ void DrawLevel(const long raw, const int idx, const datetime labelTime)
    //--- strongest grid that produced it, matching the colour it was given.
    string tname = PO3_LEVEL + "T" + IntegerToString(raw);
 
-   if(InpLabelAtScale)
-     {
-      int  y   = 0;
-      bool vis = LevelLabelY(price, y);
+   ObjectCreate(0, tname, OBJ_TEXT, 0, labelTime, price);
 
-      ObjectCreate(0, tname, OBJ_LABEL, 0, 0, 0);
-
-      ObjectSetInteger(0, tname, OBJPROP_CORNER,    CORNER_RIGHT_UPPER);
-      ObjectSetInteger(0, tname, OBJPROP_XDISTANCE, (int)MathMax(0, InpLabelGapPx));
-      ObjectSetInteger(0, tname, OBJPROP_YDISTANCE, y);
-      //--- A level scrolled off the top or bottom is hidden, not deleted, so
-      //--- that scrolling it back into view is a y update rather than a
-      //--- rebuild. RepositionLabels does that update; it cannot revive an
-      //--- object that is not there.
-      ObjectSetInteger(0, tname, OBJPROP_TIMEFRAMES,
-                       vis ? OBJ_ALL_PERIODS : OBJ_NO_PERIODS);
-      //--- Right-centred: the column ends a fixed gap off the price scale and
-      //--- the numbers line up on that edge, each one level with its own line
-      //--- rather than sitting above it the way the bar-anchored form did.
-      ObjectSetInteger(0, tname, OBJPROP_ANCHOR,    ANCHOR_RIGHT);
-     }
-   else
-     {
-      ObjectCreate(0, tname, OBJ_TEXT, 0, labelTime, price);
-
-      ObjectSetInteger(0, tname, OBJPROP_TIME,   labelTime);
-      ObjectSetDouble (0, tname, OBJPROP_PRICE,  price);
-      //--- anchored right-lower: the text sits just above the line and ends at
-      //--- the anchor bar, so it stays on screen even with chart shift off
-      ObjectSetInteger(0, tname, OBJPROP_ANCHOR, ANCHOR_RIGHT_LOWER);
-     }
-
+   ObjectSetInteger(0, tname, OBJPROP_TIME,       labelTime);
+   ObjectSetDouble (0, tname, OBJPROP_PRICE,      price);
    ObjectSetString (0, tname, OBJPROP_TEXT,       IntegerToString(g_po3[idx]));
    ObjectSetInteger(0, tname, OBJPROP_COLOR,      g_col[idx]);
    ObjectSetInteger(0, tname, OBJPROP_FONTSIZE,   (int)MathMax(5, MathMin(20, InpFontSize)));
+   //--- anchored right-lower: the text sits just above the line and ends at the
+   //    anchor bar, so it stays on screen even with chart shift switched off
+   ObjectSetInteger(0, tname, OBJPROP_ANCHOR,     ANCHOR_RIGHT_LOWER);
    ObjectSetInteger(0, tname, OBJPROP_BACK,       false);
    ObjectSetInteger(0, tname, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, tname, OBJPROP_SELECTED,   false);
    ObjectSetInteger(0, tname, OBJPROP_HIDDEN,     true);
-  }
-
-//+------------------------------------------------------------------+
-//| Put every pinned label back level with its own line.             |
-//|                                                                  |
-//| A pinned label is placed in pixels, so it knows nothing about    |
-//| the price axis moving under it - scrolling, zooming, or the      |
-//| scale re-fitting as price runs leaves the whole column stranded  |
-//| at the heights it was drawn at. This walks the labels and        |
-//| rewrites their y.                                                |
-//|                                                                  |
-//| The price is recovered from the object's own name rather than    |
-//| kept in a parallel array: the name is PO3_LT<raw>, raw is the    |
-//| workbook integer, and the price is raw / scale. One source of    |
-//| truth, and nothing to fall out of step with the objects on the   |
-//| chart.                                                           |
-//|                                                                  |
-//| Cheaper than the rebuild it replaces - it sets one property per  |
-//| label instead of deleting and recreating the lot - which is what |
-//| makes it safe to run on every chart change.                      |
-//+------------------------------------------------------------------+
-void RepositionLabels()
-  {
-   if(!InpLabelAtScale || !InpShowLabels)
-      return;
-
-   string pre = PO3_LEVEL + "T";
-   int    n   = ObjectsTotal(0, 0, OBJ_LABEL);
-
-   for(int i = 0; i < n; i++)
-     {
-      string nm = ObjectName(0, i, 0, OBJ_LABEL);
-
-      //--- The panels are OBJ_LABELs on this chart too. Only this prefix is
-      //--- ours, and it is longer than any of theirs, so nothing else matches.
-      if(StringFind(nm, pre) != 0)
-         continue;
-
-      long raw = StringToInteger(StringSubstr(nm, StringLen(pre)));
-      if(raw <= 0)
-         continue;
-
-      int  y   = 0;
-      bool vis = LevelLabelY((double)raw / InpScale, y);
-
-      if(vis)
-         ObjectSetInteger(0, nm, OBJPROP_YDISTANCE, y);
-
-      ObjectSetInteger(0, nm, OBJPROP_TIMEFRAMES,
-                       vis ? OBJ_ALL_PERIODS : OBJ_NO_PERIODS);
-     }
   }
 
 //+------------------------------------------------------------------+
@@ -1328,9 +1187,6 @@ void Rebuild(const double price, const datetime labelTime)
    //--- out whenever price crossed a grid cell.
    ObjectsDeleteAll(0, PO3_LEVEL, -1, OBJ_HLINE);
    ObjectsDeleteAll(0, PO3_LEVEL, -1, OBJ_TEXT);
-   //--- Pinned labels are OBJ_LABEL, not OBJ_TEXT, and a sweep by the old two
-   //--- types alone would leave every one of them behind on a rebuild.
-   ObjectsDeleteAll(0, PO3_LEVEL, -1, OBJ_LABEL);
 
    if(g_n <= 0)
      {
@@ -1481,69 +1337,16 @@ void UpdateClock()
 
    long left = (long)(open + PeriodSeconds()) - (long)TimeCurrent();
 
-   //--- PINNED: follow the labels to the right-hand edge, one tab inside them.
-   //--- Both distances are pixels off the same window edge, so the tab holds at
-   //--- every zoom - and the countdown cannot reach the label column unless the
-   //--- tab is set narrower than the label text is wide.
-   if(InpLabelAtScale)
-     {
-      int y = 0;
-      if(!LevelLabelY(price + InpClockGapPts * _Point, y))
-        {
-         //--- Price itself off screen. Nothing to ride, so nothing to draw.
-         ObjectDelete(0, name);
-         return;
-        }
-
-      int gap = (int)MathMax(0, InpLabelGapPx) + (int)MathMax(0, InpClockTabPx);
-
-      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
-
-      ObjectSetInteger(0, name, OBJPROP_CORNER,     CORNER_RIGHT_UPPER);
-      ObjectSetInteger(0, name, OBJPROP_XDISTANCE,  gap);
-      ObjectSetInteger(0, name, OBJPROP_YDISTANCE,  y);
-      ObjectSetInteger(0, name, OBJPROP_ANCHOR,     ANCHOR_RIGHT);
-      ObjectSetString (0, name, OBJPROP_TEXT,       TfName() + "  " + HMS(left));
-      ObjectSetInteger(0, name, OBJPROP_COLOR,      InpClockColor);
-      ObjectSetInteger(0, name, OBJPROP_FONTSIZE,   (int)MathMax(6, MathMin(24, InpClockSize)));
-      ObjectSetInteger(0, name, OBJPROP_BACK,       false);
-      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, name, OBJPROP_SELECTED,   false);
-      ObjectSetInteger(0, name, OBJPROP_HIDDEN,     true);
-      return;
-     }
-
-   //--- BAR-ANCHORED: kept inside the label column. The labels end at
-   //--- InpLabelShift and grow leftwards, so the clock has to start left of
-   //--- that or the two write over each other - and a clock placed at or
-   //--- beyond the labels would be the one of the pair that moved, since the
-   //--- labels are meant to be the rightmost thing on the chart.
-   //---
-   //--- This only orders them. It cannot guarantee they never touch: the shift
-   //--- is in bars and the text is in pixels, so zooming out far enough closes
-   //--- any bar gap. Nudge this down or the label shift up if they meet.
-   int shift = InpClockShift;
-   if(InpShowLabels && shift >= InpLabelShift)
-      shift = InpLabelShift - 1;
-
    //--- Shift is in bars, so the gap to the candle holds at every zoom level.
    //--- Signed arithmetic before the cast: a negative shift on an unsigned
    //--- datetime would wrap and throw the text to the far end of the chart.
-   long     bars = (long)PeriodSeconds() * shift;
+   long     bars = (long)PeriodSeconds() * InpClockShift;
    datetime at   = (datetime)MathMax(0, (long)open + bars);
 
-   //--- Which way the text grows from its anchor, and the whole of why the two
-   //--- do not collide.
-   //---
-   //--- With labels to its right it ends at the anchor and grows LEFT, into
-   //--- the space it just came from - it cannot reach the label column however
-   //--- wide the text gets or however far the chart is zoomed out. Without
-   //--- them there is nothing to its right to protect, so it reverts to the
-   //--- old rule: out in the margin it reads rightwards into the empty space,
-   //--- and at or behind the last bar it ends at the anchor, which keeps it
-   //--- off the candles and on screen with chart shift off.
-   bool  guarded = (InpShowLabels && !InpLabelAtScale && InpLabelShift > 0);
-   ENUM_ANCHOR_POINT anchor = (shift > 0 && !guarded) ? ANCHOR_LEFT : ANCHOR_RIGHT;
+   //--- Past the last bar the text has to read rightwards, into the empty
+   //--- space; at or behind it, ending at the anchor keeps the text off the
+   //--- candles and, with chart shift off, on screen.
+   ENUM_ANCHOR_POINT anchor = (InpClockShift > 0) ? ANCHOR_LEFT : ANCHOR_RIGHT;
 
    ObjectCreate(0, name, OBJ_TEXT, 0, at, price);
 
@@ -2938,36 +2741,8 @@ void OnTimer()
    RefreshLevels();
    UpdateCount();
    UpdatePanel();
-   //--- After RefreshLevels, so a rebuild in the same pass is not undone: the
-   //--- rebuild places labels at the heights it read, and this catches the
-   //--- price scale having re-fitted since. Cheap enough to run every second.
-   RepositionLabels();
    UpdateClock();
    UpdateSession();
-   ChartRedraw();
-  }
-
-//+------------------------------------------------------------------+
-//| The chart moved under the pinned column.                         |
-//|                                                                  |
-//| Scrolling, zooming, resizing the window and the scale re-fitting |
-//| all raise CHART_CHANGE and all move the price axis without       |
-//| moving a single level. The lines are drawn in price and follow   |
-//| on their own; the labels are drawn in pixels and do not, so they |
-//| are put back here.                                               |
-//|                                                                  |
-//| Nothing is rebuilt. The set of levels has not changed - only     |
-//| where they land on the glass - so this is a y update and the     |
-//| countdown, which rides price for the same reason.                |
-//+------------------------------------------------------------------+
-void OnChartEvent(const int id, const long &lparam, const double &dparam,
-                  const string &sparam)
-  {
-   if(id != CHARTEVENT_CHART_CHANGE || !InpLabelAtScale)
-      return;
-
-   RepositionLabels();
-   UpdateClock();
    ChartRedraw();
   }
 
@@ -2993,7 +2768,6 @@ int OnCalculate(const int rates_total,
    //--- stays: it is anchored to price and rides it between seconds.
    RefreshLevels();
    UpdateCount();
-   RepositionLabels();
    UpdateClock();
 
    return(rates_total);
