@@ -771,6 +771,18 @@ input group "PO3 levels to show";
 //--- level's strength is meant to be read from how many grids agree on it, which
 //--- is only visible with all of them drawn. Untick the fine ones for a quieter
 //--- chart; the levels that remain do not move.
+//--- 3^0 = 1, the bottom of the ladder. At scale 1 it is every whole number,
+//--- so on gold it draws a line per dollar and the 3 grid's cells each get
+//--- their two interior lines - the finest subdivision the model has.
+//---
+//--- It is drawn very faint on purpose. MT5 gives an OBJ_HLINE no
+//--- transparency, so faintness is the colour and nothing else: the default is
+//--- a near-background grey, one step off black, which reads as texture inside
+//--- a 3 cell rather than as a level competing with it. Raise it if your chart
+//--- background is light - on white, a dark grey is the LOUDEST line on the
+//--- chart, not the quietest.
+input bool  InpUse_1     = true;               // 1      - show
+input color InpCol_1     = C'70,70,70';        // 1      - colour
 input bool  InpUse_3     = true;               // 3      - show
 input color InpCol_3     = clrGray;            // 3      - colour
 input bool  InpUse_9     = true;               // 9      - show
@@ -789,21 +801,6 @@ input bool  InpUse_6561  = true;               // 6561   - show
 input color InpCol_6561  = clrOrangeRed;       // 6561   - colour
 input bool  InpUse_19683 = true;               // 19683  - show
 input color InpCol_19683 = clrCrimson;         // 19683  - colour
-
-//--- 1 = 3^0, the one grid off by default: at scale 1 it is every whole
-//--- number, which on gold is a line per dollar. Tick it to see where price
-//--- sits inside a 3 cell; leaving it on buries the chart.
-//---
-//--- Last in the list, out of numerical order, and that is deliberate. MT5
-//--- stores a chart's indicator inputs POSITIONALLY, so an input inserted
-//--- among the existing ones shifts every stored value after it by a slot and
-//--- every chart already carrying this indicator reads colours as checkboxes
-//--- and checkboxes as colours - grids silently off, colours wrong, fewer
-//--- lines than before. Appended here, the nine saved slots keep their
-//--- meaning and only the two new ones start at their defaults. The registered
-//--- table is still built ascending in OnInit; only the dialog shows 1 last.
-input bool  InpUse_1     = false;              // 1      - show
-input color InpCol_1     = clrDimGray;         // 1      - colour
 
 #define PO3_PREFIX  "PO3_"
 //--- Level lines and their labels share a sub-prefix so the redraw sweep can
@@ -893,6 +890,28 @@ string PriceText(const double price)
    int dig = (MathAbs(price - MathRound(price)) < 1e-9)
              ? 0 : (int)MathMax(_Digits, 2);
    return(DoubleToString(price, dig));
+  }
+
+//+------------------------------------------------------------------+
+//| How many levels each side this grid draws.                       |
+//|                                                                  |
+//| Every grid gets the input's own count, with one exception. The   |
+//| 1 grid is not a level ladder in its own right - it is the        |
+//| subdivision of the 3 grid, the two interior lines that split a 3 |
+//| cell into thirds - so it has to span what the 3 grid spans or    |
+//| the subdivision is partial. At the default of 3 each side, the 3 |
+//| grid reaches about nine dollars either way and a 1 grid drawing  |
+//| three would fill only the middle cell, leaving the outer cells   |
+//| bare and looking like lines that failed to draw.                 |
+//|                                                                  |
+//| Three times the count is exactly the 3 grid's reach, because     |
+//| that is what the ratio between the two grids is. It costs lines  |
+//| - eighteen instead of six at the default - which is the price of |
+//| the subdivision being whole.                                     |
+//+------------------------------------------------------------------+
+int PO3EachFor(const int po3)
+  {
+   return((po3 == 1) ? g_each * 3 : g_each);
   }
 
 //+------------------------------------------------------------------+
@@ -1003,8 +1022,9 @@ int OnInit()
       return(INIT_SUCCEEDED);
      }
 
-   //--- Freeze guard. The clamp alone caps ten ticked grids at 2000 candidate
-   //--- levels, which MT5 handles. Deliberately no further trim on top: quietly
+   //--- Freeze guard. The clamp alone caps ten ticked grids at 2400 candidate
+   //--- levels - 1800 for the nine, 600 for the 1 grid's triple window - which
+   //--- MT5 handles. Deliberately no further trim on top: quietly
    //--- rewriting the count would make the input mean something other than what
    //--- it says, and the warning would sit in a log nobody is watching.
    g_each = (int)MathMax(1, MathMin(100, InpEachSide));
@@ -1013,8 +1033,9 @@ int OnInit()
    //--- superset of every coarser one. Tracking its cell is enough to know when
    //--- any ticked level would move. With the 1 grid ticked that cell is a
    //--- dollar wide at scale 1, so the rebuild runs on every dollar of travel
-   //--- rather than every three - which is the honest cost of drawing it, and
-   //--- another reason it is not on by default.
+   //--- rather than every three. That is the honest cost of the finest grid,
+   //--- and the reason to untick it on a slow machine rather than to live with
+   //--- a redraw that cannot keep up.
    g_finest = g_po3[0];
 
    string names = "";
@@ -1023,7 +1044,8 @@ int OnInit()
       names += (i > 0 ? " + " : "") + IntegerToString(g_po3[i]);
       PrintFormat("PO3 Levels: active %d of %d = PO3 %d, step %s, %d each side.",
                   i + 1, g_n, g_po3[i],
-                  PriceText((double)g_po3[i] / InpScale), g_each);
+                  PriceText((double)g_po3[i] / InpScale),
+                  PO3EachFor(g_po3[i]));
      }
    IndicatorSetString(INDICATOR_SHORTNAME, "PO3 " + names +
                       ((InpShowCount || InpShowPanel || InpShowSeg || InpShowSched)
@@ -1138,21 +1160,28 @@ void Rebuild(const double price, const datetime labelTime)
 
    long raws[];
    int  owner[];
-   int  cap = g_n * 2 * g_each;
+
+   //--- Summed rather than g_n * 2 * g_each, because the grids no longer all
+   //--- draw the same number of levels - see PO3EachFor.
+   int cap = 0;
+   for(int s = 0; s < g_n; s++)
+      cap += 2 * PO3EachFor(g_po3[s]);
+
    ArrayResize(raws,  cap);
    ArrayResize(owner, cap);
    int n = 0;
 
    for(int s = 0; s < g_n; s++)
      {
-      long po3 = (long)g_po3[s];
+      long po3  = (long)g_po3[s];
+      int  each = PO3EachFor(g_po3[s]);
 
       //--- The epsilon matters. A price sitting exactly on a level, e.g. 2952.45
       //--- with PO3 2187, divides to 134.99999999999997 rather than 135, so a
       //--- bare floor() would anchor one level too low and shift the window down.
       long m0 = (long)MathFloor(price * InpScale / (double)po3 + 1e-9);
 
-      for(long m = m0 - g_each + 1; m <= m0 + g_each; m++)
+      for(long m = m0 - each + 1; m <= m0 + each; m++)
         {
          if(m <= 0)                     // zero anchor and negatives are not prices
             continue;
